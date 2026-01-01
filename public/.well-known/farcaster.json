@@ -1,0 +1,29 @@
+{
+  "accountAssociation": {
+    "header": "",
+    "payload": "",
+    "signature": ""
+  },
+  "miniapp": {
+    "version": "1",
+    "name": "DriftWing",
+    "homeUrl": "https://your-app-url.com",
+    "iconUrl": "https://your-app-url.com/icon.png",
+    "splashImageUrl": "https://your-app-url.com/splash.png",
+    "splashBackgroundColor": "#070A12",
+    "subtitle": "One-touch shooter",
+    "description": "Drag to drift, auto-fire with overheat, stack combos, and survive miniboss waves.",
+    "primaryCategory": "games",
+    "tags": [
+      "base",
+      "game",
+      "arcade"
+    ],
+    "heroImageUrl": "https://your-app-url.com/hero.png",
+    "tagline": "Survive the sky",
+    "ogTitle": "DriftWing",
+    "ogDescription": "A minimal one-touch shooter for Base + Farcaster.",
+    "ogImageUrl": "https://your-app-url.com/hero.png",
+    "noindex": true
+  }
+}
