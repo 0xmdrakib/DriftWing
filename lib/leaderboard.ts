@@ -23,12 +23,30 @@ export function weekStartMs(tsMs: number) {
   return start;
 }
 
+/**
+ * DriftWing week numbering starts at 0 and increments every week.
+ * By default, week 0 is anchored to a fixed "genesis" timestamp (UTC).
+ * You can override this by setting LEADERBOARD_GENESIS_ISO on Vercel, e.g.:
+ *   LEADERBOARD_GENESIS_ISO="2026-01-01T00:00:00Z"
+ */
+const DEFAULT_GENESIS_ISO = "2026-01-01T00:00:00Z";
+const GENESIS_MS = (() => {
+  const iso = process.env.LEADERBOARD_GENESIS_ISO || DEFAULT_GENESIS_ISO;
+  const ms = Date.parse(iso);
+  return Number.isFinite(ms) ? ms : Date.parse(DEFAULT_GENESIS_ISO);
+})();
+const WEEK0_START_MS = weekStartMs(GENESIS_MS);
+
+
 export function weekIdFromTs(tsMs: number) {
-  return Math.floor(weekStartMs(tsMs) / WEEK_MS);
+  const start = weekStartMs(tsMs);
+  const id = Math.floor((start - WEEK0_START_MS) / WEEK_MS);
+  return Math.max(0, id);
 }
 
 export function weekWindowFromId(weekId: number) {
-  const start = weekId * WEEK_MS;
+  const id = Math.max(0, Math.floor(weekId));
+  const start = WEEK0_START_MS + id * WEEK_MS;
   return { startMs: start, endMs: start + WEEK_MS };
 }
 
