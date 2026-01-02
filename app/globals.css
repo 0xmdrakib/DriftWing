@@ -836,3 +836,10 @@ body::after{
   opacity: .8;
   font-size: 13px;
 }
+
+
+.dwLbUpdating{
+  padding: 8px 10px;
+  font-size: 12px;
+  opacity: .65;
+}
