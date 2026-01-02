@@ -697,17 +697,17 @@ html, body { background-attachment: fixed; }
 }
 
 .dwSavedPill{
-  margin-top: 10px;
+  margin-top: 0;
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  padding: 10px 12px;
+  height: 36px;
+  padding: 0 12px;
   border-radius: 999px;
-  font-weight: 950;
+  font-weight: 900;
   color: rgba(234,240,255,.94);
-  background: linear-gradient(135deg, rgba(124,255,178,.26), rgba(124,255,178,.10));
+  background: linear-gradient(135deg, rgba(124,255,178,.22), rgba(124,255,178,.08));
   border: 1px solid rgba(124,255,178,.26);
-  box-shadow: 0 16px 38px rgba(0,0,0,.26);
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.10);
 }
 
 .dwNote{
@@ -837,9 +837,27 @@ body::after{
   font-size: 13px;
 }
 
-
-.dwLbUpdating{
-  padding: 8px 10px;
+/* Leaderboard helpers */
+.dwLbSwitch{
+  margin-top: 10px;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.dwLbTag{
+  margin-left: 10px;
+  font-style: normal;
   font-size: 12px;
-  opacity: .65;
+  font-weight: 900;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(255,255,255,.08);
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.12);
+  color: rgba(200,210,240,.92);
+}
+.dwLbUpdating{
+  font-size: 12px;
+  font-weight: 800;
+  color: rgba(200,210,240,.8);
 }
