@@ -13,43 +13,51 @@ type WeekStore = {
   entries: Record<string, LeaderboardEntry>; // keyed by lowercase address
 };
 
-const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
-
-export function weekStartMs(tsMs: number) {
-  const d = new Date(tsMs);
-  // Monday 00:00 UTC as the boundary.
-  const day = (d.getUTCDay() + 6) % 7; // Monday=0 ... Sunday=6
-  const start = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), 0, 0, 0, 0) - day * 24 * 60 * 60 * 1000;
-  return start;
-}
+const DEFAULT_WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 
 /**
- * DriftWing week numbering starts at 0 and increments every week.
- * By default, week 0 is anchored to a fixed "genesis" timestamp (UTC).
- * You can override this by setting LEADERBOARD_GENESIS_ISO on Vercel, e.g.:
+ * Week 0 anchor. By default we start counting from 2026-01-01 00:00:00 UTC,
+ * so weeks are: 0, 1, 2... in a simple, predictable sequence.
+ *
+ * You can override in env:
  *   LEADERBOARD_GENESIS_ISO="2026-01-01T00:00:00Z"
+ * For fast local testing you can also shorten the week:
+ *   LEADERBOARD_WEEK_SECONDS=60   (or LEADERBOARD_WEEK_MS=60000)
  */
-const DEFAULT_GENESIS_ISO = "2026-01-01T00:00:00Z";
-const GENESIS_MS = (() => {
-  const iso = process.env.LEADERBOARD_GENESIS_ISO || DEFAULT_GENESIS_ISO;
+function getGenesisMs() {
+  const iso = process.env.LEADERBOARD_GENESIS_ISO || "2026-01-01T00:00:00.000Z";
   const ms = Date.parse(iso);
-  return Number.isFinite(ms) ? ms : Date.parse(DEFAULT_GENESIS_ISO);
-})();
-const WEEK0_START_MS = weekStartMs(GENESIS_MS);
+  return Number.isFinite(ms) ? ms : Date.UTC(2026, 0, 1, 0, 0, 0, 0);
+}
 
+function getWeekMs() {
+  const msRaw = process.env.LEADERBOARD_WEEK_MS;
+  const secRaw = process.env.LEADERBOARD_WEEK_SECONDS;
+  const ms = msRaw ? Number(msRaw) : secRaw ? Number(secRaw) * 1000 : DEFAULT_WEEK_MS;
+  return Number.isFinite(ms) && ms >= 10_000 ? ms : DEFAULT_WEEK_MS; // minimum 10s safety
+}
+
+export function weekStartMs(tsMs: number) {
+  const weekId = weekIdFromTs(tsMs);
+  return weekWindowFromId(weekId).startMs;
+}
 
 export function weekIdFromTs(tsMs: number) {
-  const start = weekStartMs(tsMs);
-  const id = Math.floor((start - WEEK0_START_MS) / WEEK_MS);
-  return Math.max(0, id);
+  const genesis = getGenesisMs();
+  const weekMs = getWeekMs();
+  return Math.max(0, Math.floor((tsMs - genesis) / weekMs));
+}
+
+export function currentWeekId(tsMs = Date.now()) {
+  return weekIdFromTs(tsMs);
 }
 
 export function weekWindowFromId(weekId: number) {
-  const id = Math.max(0, Math.floor(weekId));
-  const start = WEEK0_START_MS + id * WEEK_MS;
-  return { startMs: start, endMs: start + WEEK_MS };
+  const genesis = getGenesisMs();
+  const weekMs = getWeekMs();
+  const start = genesis + weekId * weekMs;
+  return { startMs: start, endMs: start + weekMs, weekMs, genesisMs: genesis };
 }
-
 function kvEnabled() {
   return Boolean(process.env.KV_REST_API_URL && process.env.KV_REST_API_TOKEN);
 }
@@ -68,6 +76,17 @@ const mem = globalThis.__dwLeaderboardMem || (globalThis.__dwLeaderboardMem = ne
 
 function keyForWeek(weekId: number) {
   return `dw:leaderboard:week:${weekId}`;
+}
+
+export async function deleteWeekStore(weekId: number) {
+  const key = keyForWeek(weekId);
+
+  if (kvEnabled()) {
+    const kv = await kvClient();
+    await kv.del(key);
+  } else {
+    mem.delete(key);
+  }
 }
 
 export async function loadWeekStore(weekId: number): Promise<WeekStore> {
