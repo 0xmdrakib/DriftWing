@@ -159,11 +159,15 @@ export default function GameClient() {
   const [lbNow, setLbNow] = useState<number>(Date.now());
   const [lbMyRank, setLbMyRank] = useState<number | null>(null);
   const [lbKvEnabled, setLbKvEnabled] = useState<boolean | null>(null);
+  const [lbUpdating, setLbUpdating] = useState(false);
+  const [lbCurrentWeekId, setLbCurrentWeekId] = useState<number | null>(null);
+  const lbRolloverForEndRef = useRef<number | null>(null);
 
-  // Refs to avoid re-fetch loops from per-second countdown ticks
+  // Avoid extra network refreshes caused by effect re-runs when lbEndMs changes.
+  // We keep the week end timestamp in a ref for the countdown/tick logic.
   const lbEndMsRef = useRef<number | null>(null);
-  const lbWeekIdRef = useRef<number | null>(null);
-  const lbRolloverRef = useRef(false);
+  // Guard against spamming the API if the tick notices a week rollover.
+  const lbLoadingRef = useRef(false);
 
   function fmtLeft(msLeft: number) {
     const s = Math.max(0, Math.floor(msLeft / 1000));
@@ -171,33 +175,29 @@ export default function GameClient() {
     const h = Math.floor((s % 86400) / 3600);
     const m = Math.floor((s % 3600) / 60);
     const ss = s % 60;
-    if (d > 0) return `${d}d ${h}h ${m}m`;
-    if (h > 0) return `${h}h ${m}m`;
+    if (d > 0) return `${d}d ${h}h ${m}m ${ss}s`;
+    if (h > 0) return `${h}h ${m}m ${ss}s`;
     return `${m}m ${ss}s`;
   }
 
-  async function loadLeaderboard() {
+  async function loadLeaderboard(weekOverride?: number) {
     try {
       setLbErr("");
-      setLbLoading(true);
-      const qs = account ? `?account=${account}` : "";
-      const res = await fetch(`/api/leaderboard${qs}`, { cache: "no-store" });
+      const initial = lbTop.length === 0;
+      if (initial) setLbLoading(true);
+      else setLbUpdating(true);
+      lbLoadingRef.current = true;
+      const params = new URLSearchParams();
+      if (account) params.set("account", account);
+      if (typeof weekOverride === "number" && Number.isFinite(weekOverride)) params.set("week", String(weekOverride));
+      const qs = params.toString();
+      const res = await fetch(`/api/leaderboard${qs ? `?${qs}` : ""}`, { cache: "no-store" });
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || "Failed to load leaderboard");
-      const nextWeekId = Number(data.weekId);
-      const nextEndMs = Number(data.weekEndMs);
-      if (Number.isFinite(nextWeekId)) {
-        if (lbWeekIdRef.current !== null && nextWeekId !== lbWeekIdRef.current) {
-          // New week -> allow rollover refresh again.
-          lbRolloverRef.current = false;
-        }
-        lbWeekIdRef.current = nextWeekId;
-        setLbWeekId(nextWeekId);
-      }
-      if (Number.isFinite(nextEndMs)) {
-        lbEndMsRef.current = nextEndMs;
-        setLbEndMs(nextEndMs);
-      }
+      setLbWeekId(data.weekId);
+      setLbCurrentWeekId(typeof data.currentWeekId === "number" ? data.currentWeekId : data.weekId);
+      setLbEndMs(data.weekEndMs);
+      lbEndMsRef.current = typeof data.weekEndMs === "number" ? data.weekEndMs : null;
       setLbTop(data.top || []);
       setLbMyRank(typeof data.myRank === "number" ? data.myRank : null);
       setLbKvEnabled(Boolean(data.kvEnabled));
@@ -205,40 +205,48 @@ export default function GameClient() {
       setLbErr(e?.message || "Failed to load leaderboard");
     } finally {
       setLbLoading(false);
+      setLbUpdating(false);
+      lbLoadingRef.current = false;
     }
   }
 
   useEffect(() => {
     if (!lbOpen) return;
 
-    let alive = true;
+    // Network refresh cadence: keep it gentle.
+    const LB_REFRESH_MS = 15_000;
+
+    // Always start by loading the current week.
     loadLeaderboard();
 
-    // Network refresh (keep it calm)
     const refresh = setInterval(() => {
-      if (alive) loadLeaderboard();
-    }, 15_000);
+      // Only auto-refresh when viewing the current week.
+      const viewingCurrent = lbCurrentWeekId == null || lbWeekId == null || lbCurrentWeekId === lbWeekId;
+      if (viewingCurrent) loadLeaderboard();
+    }, LB_REFRESH_MS);
 
-    // UI countdown tick (no network)
+    // UI-only ticker for the countdown clock (no network).
     const tick = setInterval(() => {
-      const now = Date.now();
-      setLbNow(now);
+      setLbNow(Date.now());
 
-      // When the week rolls over, refresh once (guarded).
+      const viewingCurrent = lbCurrentWeekId == null || lbWeekId == null || lbCurrentWeekId === lbWeekId;
+      if (!viewingCurrent) return;
+
+      // When the week rolls over, refresh exactly once.
       const end = lbEndMsRef.current;
-      if (end && now >= end && !lbRolloverRef.current) {
-        lbRolloverRef.current = true;
+      if (end && Date.now() >= end && !lbLoadingRef.current && lbRolloverForEndRef.current !== end) {
+        lbRolloverForEndRef.current = end;
         loadLeaderboard();
       }
     }, 1_000);
 
     return () => {
-      alive = false;
       clearInterval(refresh);
       clearInterval(tick);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lbOpen, account]);
+  }, [lbOpen, account, lbWeekId, lbCurrentWeekId]);
+
 
 
   // Tracks whether the current run’s score has been saved at least once (UI only).
@@ -1143,11 +1151,48 @@ export default function GameClient() {
                 <div>
                   <span>Week</span>
                   <b>#{lbWeekId ?? "—"}</b>
+                  {lbCurrentWeekId != null && lbWeekId != null && lbWeekId !== lbCurrentWeekId && (
+                    <em className="dwLbTag">Snapshot</em>
+                  )}
                 </div>
                 <div style={{ textAlign: "right" }}>
-                  <span>Resets in</span>
-                  <b>{lbEndMs ? fmtLeft(lbEndMs - lbNow) : "…"}</b>
+                  <span>
+                    {lbCurrentWeekId != null && lbWeekId != null && lbWeekId !== lbCurrentWeekId ? "Ended" : "Resets in"}
+                  </span>
+                  <b>
+                    {lbCurrentWeekId != null && lbWeekId != null && lbWeekId !== lbCurrentWeekId
+                      ? "—"
+                      : lbEndMs
+                        ? fmtLeft(lbEndMs - lbNow)
+                        : "…"}
+                  </b>
                 </div>
+              </div>
+
+              <div className="dwLbSwitch">
+                {lbCurrentWeekId != null && lbCurrentWeekId > 0 && (
+                  <button className="dwBtn" onClick={() => loadLeaderboard(lbCurrentWeekId - 1)}>
+                    Last week
+                  </button>
+                )}
+                {lbCurrentWeekId != null && lbWeekId != null && lbWeekId !== lbCurrentWeekId && (
+                  <button className="dwBtn" onClick={() => loadLeaderboard()}>
+                    This week
+                  </button>
+                )}
+                {process.env.NODE_ENV !== "production" && (
+                  <button
+                    className="dwBtn"
+                    onClick={async () => {
+                      await fetch("/api/leaderboard/reset", { method: "POST" });
+                      loadLeaderboard();
+                    }}
+                    title="Development helper: clears the current week scores"
+                  >
+                    Reset (dev)
+                  </button>
+                )}
+                {lbUpdating && <div className="dwLbUpdating">Updating…</div>}
               </div>
 
               {typeof lbMyRank === "number" && (
@@ -1168,23 +1213,20 @@ export default function GameClient() {
                 </div>
 
                 <div className="dwLbList">
-                  {lbErr ? (
+                  {lbLoading ? (
+                    <div className="dwLbEmpty">Loading…</div>
+                  ) : lbErr ? (
                     <div className="dwLbEmpty">{lbErr}</div>
                   ) : lbTop.length === 0 ? (
-                    <div className="dwLbEmpty">{lbLoading ? "Loading…" : "No scores yet. Be the first."}</div>
+                    <div className="dwLbEmpty">No scores yet. Be the first.</div>
                   ) : (
-                    <>
-                      {lbLoading && <div className="dwLbUpdating">Updating…</div>}
-                      {lbTop.map((e, i) => (
-                        <div className="dwLbRow" key={e.address + i}>
-                          <span className="dwLbRank">{i + 1}</span>
-                          <span className="dwLbAddr">
-                            {e.address.slice(0, 6)}…{e.address.slice(-4)}
-                          </span>
-                          <span className="dwLbScore">{e.score}</span>
-                        </div>
-                      ))}
-                    </>
+                    lbTop.map((e, i) => (
+                      <div className="dwLbRow" key={e.address + i}>
+                        <span className="dwLbRank">{i + 1}</span>
+                        <span className="dwLbAddr">{e.address.slice(0, 6)}…{e.address.slice(-4)}</span>
+                        <span className="dwLbScore">{e.score}</span>
+                      </div>
+                    ))
                   )}
                 </div>
               </div>
@@ -1193,7 +1235,14 @@ export default function GameClient() {
                 <button className="dwBtn dwPrimary" onClick={() => setLbOpen(false)} type="button">
                   Back
                 </button>
-                <button className="dwBtn" onClick={loadLeaderboard} type="button">
+                <button
+                  className="dwBtn"
+                  onClick={() => {
+                    const viewingPast = lbCurrentWeekId != null && lbWeekId != null && lbCurrentWeekId !== lbWeekId;
+                    loadLeaderboard(viewingPast ? lbWeekId! : undefined);
+                  }}
+                  type="button"
+                >
                   Refresh
                 </button>
               </div>
