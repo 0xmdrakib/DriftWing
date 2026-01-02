@@ -6,8 +6,7 @@ const APP_URL =
   process.env.NEXT_PUBLIC_APP_URL ||
   (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
 
-// Base Build "Verify & Add URL" modal থেকে যেই App ID কপি করেছ, সেটা এখানে দাও।
-// চাইলে env var দিয়ে রাখতেও পারো: NEXT_PUBLIC_BASE_APP_ID="..."
+
 const BASE_APP_ID =
   process.env.NEXT_PUBLIC_BASE_APP_ID || "695832f84d3a403912ed8a9c";
 
