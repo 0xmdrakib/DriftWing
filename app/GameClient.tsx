@@ -160,11 +160,10 @@ export default function GameClient() {
   const [lbMyRank, setLbMyRank] = useState<number | null>(null);
   const [lbKvEnabled, setLbKvEnabled] = useState<boolean | null>(null);
 
-  // Avoid extra network refreshes caused by effect re-runs when lbEndMs changes.
-  // We keep the week end timestamp in a ref for the countdown/tick logic.
+  // Refs to avoid re-fetch loops from per-second countdown ticks
   const lbEndMsRef = useRef<number | null>(null);
-  // Guard against spamming the API if the tick notices a week rollover.
-  const lbLoadingRef = useRef(false);
+  const lbWeekIdRef = useRef<number | null>(null);
+  const lbRolloverRef = useRef(false);
 
   function fmtLeft(msLeft: number) {
     const s = Math.max(0, Math.floor(msLeft / 1000));
@@ -181,14 +180,24 @@ export default function GameClient() {
     try {
       setLbErr("");
       setLbLoading(true);
-      lbLoadingRef.current = true;
       const qs = account ? `?account=${account}` : "";
       const res = await fetch(`/api/leaderboard${qs}`, { cache: "no-store" });
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || "Failed to load leaderboard");
-      setLbWeekId(data.weekId);
-      setLbEndMs(data.weekEndMs);
-      lbEndMsRef.current = typeof data.weekEndMs === "number" ? data.weekEndMs : null;
+      const nextWeekId = Number(data.weekId);
+      const nextEndMs = Number(data.weekEndMs);
+      if (Number.isFinite(nextWeekId)) {
+        if (lbWeekIdRef.current !== null && nextWeekId !== lbWeekIdRef.current) {
+          // New week -> allow rollover refresh again.
+          lbRolloverRef.current = false;
+        }
+        lbWeekIdRef.current = nextWeekId;
+        setLbWeekId(nextWeekId);
+      }
+      if (Number.isFinite(nextEndMs)) {
+        lbEndMsRef.current = nextEndMs;
+        setLbEndMs(nextEndMs);
+      }
       setLbTop(data.top || []);
       setLbMyRank(typeof data.myRank === "number" ? data.myRank : null);
       setLbKvEnabled(Boolean(data.kvEnabled));
@@ -196,26 +205,35 @@ export default function GameClient() {
       setLbErr(e?.message || "Failed to load leaderboard");
     } finally {
       setLbLoading(false);
-      lbLoadingRef.current = false;
     }
   }
 
   useEffect(() => {
     if (!lbOpen) return;
 
-    // Network refresh cadence: keep it gentle.
-    const LB_REFRESH_MS = 15_000; // slower + calmer
-
+    let alive = true;
     loadLeaderboard();
-    const refresh = setInterval(() => loadLeaderboard(), LB_REFRESH_MS);
+
+    // Network refresh (keep it calm)
+    const refresh = setInterval(() => {
+      if (alive) loadLeaderboard();
+    }, 15_000);
+
+    // UI countdown tick (no network)
     const tick = setInterval(() => {
-      setLbNow(Date.now());
-      // when week rolls over, refresh immediately
+      const now = Date.now();
+      setLbNow(now);
+
+      // When the week rolls over, refresh once (guarded).
       const end = lbEndMsRef.current;
-      if (end && Date.now() >= end && !lbLoadingRef.current) loadLeaderboard();
+      if (end && now >= end && !lbRolloverRef.current) {
+        lbRolloverRef.current = true;
+        loadLeaderboard();
+      }
     }, 1_000);
 
     return () => {
+      alive = false;
       clearInterval(refresh);
       clearInterval(tick);
     };
@@ -1150,20 +1168,23 @@ export default function GameClient() {
                 </div>
 
                 <div className="dwLbList">
-                  {lbLoading ? (
-                    <div className="dwLbEmpty">Loading…</div>
-                  ) : lbErr ? (
+                  {lbErr ? (
                     <div className="dwLbEmpty">{lbErr}</div>
                   ) : lbTop.length === 0 ? (
-                    <div className="dwLbEmpty">No scores yet. Be the first.</div>
+                    <div className="dwLbEmpty">{lbLoading ? "Loading…" : "No scores yet. Be the first."}</div>
                   ) : (
-                    lbTop.map((e, i) => (
-                      <div className="dwLbRow" key={e.address + i}>
-                        <span className="dwLbRank">{i + 1}</span>
-                        <span className="dwLbAddr">{e.address.slice(0, 6)}…{e.address.slice(-4)}</span>
-                        <span className="dwLbScore">{e.score}</span>
-                      </div>
-                    ))
+                    <>
+                      {lbLoading && <div className="dwLbUpdating">Updating…</div>}
+                      {lbTop.map((e, i) => (
+                        <div className="dwLbRow" key={e.address + i}>
+                          <span className="dwLbRank">{i + 1}</span>
+                          <span className="dwLbAddr">
+                            {e.address.slice(0, 6)}…{e.address.slice(-4)}
+                          </span>
+                          <span className="dwLbScore">{e.score}</span>
+                        </div>
+                      ))}
+                    </>
                   )}
                 </div>
               </div>
