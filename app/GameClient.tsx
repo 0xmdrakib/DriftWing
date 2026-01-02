@@ -160,6 +160,12 @@ export default function GameClient() {
   const [lbMyRank, setLbMyRank] = useState<number | null>(null);
   const [lbKvEnabled, setLbKvEnabled] = useState<boolean | null>(null);
 
+  // Avoid extra network refreshes caused by effect re-runs when lbEndMs changes.
+  // We keep the week end timestamp in a ref for the countdown/tick logic.
+  const lbEndMsRef = useRef<number | null>(null);
+  // Guard against spamming the API if the tick notices a week rollover.
+  const lbLoadingRef = useRef(false);
+
   function fmtLeft(msLeft: number) {
     const s = Math.max(0, Math.floor(msLeft / 1000));
     const d = Math.floor(s / 86400);
@@ -175,12 +181,14 @@ export default function GameClient() {
     try {
       setLbErr("");
       setLbLoading(true);
+      lbLoadingRef.current = true;
       const qs = account ? `?account=${account}` : "";
       const res = await fetch(`/api/leaderboard${qs}`, { cache: "no-store" });
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || "Failed to load leaderboard");
       setLbWeekId(data.weekId);
       setLbEndMs(data.weekEndMs);
+      lbEndMsRef.current = typeof data.weekEndMs === "number" ? data.weekEndMs : null;
       setLbTop(data.top || []);
       setLbMyRank(typeof data.myRank === "number" ? data.myRank : null);
       setLbKvEnabled(Boolean(data.kvEnabled));
@@ -188,18 +196,23 @@ export default function GameClient() {
       setLbErr(e?.message || "Failed to load leaderboard");
     } finally {
       setLbLoading(false);
+      lbLoadingRef.current = false;
     }
   }
 
   useEffect(() => {
     if (!lbOpen) return;
 
+    // Network refresh cadence: keep it gentle.
+    const LB_REFRESH_MS = 15_000; // slower + calmer
+
     loadLeaderboard();
-    const refresh = setInterval(() => loadLeaderboard(), 15_000);
+    const refresh = setInterval(() => loadLeaderboard(), LB_REFRESH_MS);
     const tick = setInterval(() => {
       setLbNow(Date.now());
       // when week rolls over, refresh immediately
-      if (lbEndMs && Date.now() >= lbEndMs) loadLeaderboard();
+      const end = lbEndMsRef.current;
+      if (end && Date.now() >= end && !lbLoadingRef.current) loadLeaderboard();
     }, 1_000);
 
     return () => {
@@ -207,7 +220,7 @@ export default function GameClient() {
       clearInterval(tick);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lbOpen, account, lbEndMs]);
+  }, [lbOpen, account]);
 
 
   // Tracks whether the current run’s score has been saved at least once (UI only).
