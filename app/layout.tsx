@@ -6,18 +6,14 @@ const APP_URL =
   process.env.NEXT_PUBLIC_APP_URL ||
   (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
 
-
-const BASE_APP_ID =
-  process.env.NEXT_PUBLIC_BASE_APP_ID || "695832f84d3a403912ed8a9c";
+const BASE_APP_ID = process.env.NEXT_PUBLIC_BASE_APP_ID || process.env.BASE_APP_ID || "";
 
 export const metadata: Metadata = {
   metadataBase: new URL(APP_URL),
   title: "DriftWing",
   description: "A tiny arcade shooter on Base — every run gets saved onchain.",
   other: {
-    // ✅ Base App ownership verification tag (must be in <head>)
-    "base:app_id": BASE_APP_ID,
-
+    ...(BASE_APP_ID ? { "base:app_id": BASE_APP_ID } : {}),
     // Mini App embed metadata (the launch button + preview).
     // Base + Farcaster both support `fc:miniapp`. Keeping a `fc:frame` fallback
     // helps older clients.
@@ -57,9 +53,9 @@ export const metadata: Metadata = {
     siteName: "DriftWing",
     images: [
       {
-        url: "/hero.png",
+        url: "/og.png",
         width: 1200,
-        height: 800,
+        height: 630,
         alt: "DriftWing",
       },
     ],
