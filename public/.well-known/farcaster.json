@@ -8,8 +8,8 @@
     "version": "1",
     "name": "DriftWing",
     "homeUrl": "https://driftwing.vercel.app/",
-    "iconUrl": "https://driftwing.vercel.app/icon.png",
-    "splashImageUrl": "https://driftwing.vercel.app/splash.png",
+    "iconUrl": "https://driftwing.vercel.app/icon.png?v=1",
+    "splashImageUrl": "https://driftwing.vercel.app/splash.png?v=1",
     "splashBackgroundColor": "#070A12",
     "subtitle": "One-touch shooter",
     "description": "Drag to drift, auto-fire with overheat, stack combos, and survive miniboss waves.",
@@ -19,11 +19,11 @@
       "game",
       "arcade"
     ],
-    "heroImageUrl": "https://driftwing.vercel.app/hero.png",
+    "heroImageUrl": "https://driftwing.vercel.app/hero.png?v=1",
     "tagline": "Survive the sky",
     "ogTitle": "DriftWing",
     "ogDescription": "A minimal one touch shooter for Base plus Farcaster.",
-    "ogImageUrl": "https://driftwing.vercel.app/hero.png",
+    "ogImageUrl": "https://driftwing.vercel.app/hero.png?v=1",
     "noindex": true
   }
 }
