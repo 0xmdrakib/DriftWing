@@ -1243,7 +1243,7 @@ export default function GameClient() {
 
         <div className="dwBottom">
           <div className="dwHow">
-            Drag left/right to move • Auto-fire • Destroy the big plane for bonus + Overdrive
+            Drag left/right to move • Auto-fire • Destroy the big plane for bonus and dual fire for few secend.
           </div>
           <div className="dwStatus">
             {saving ? "Saving…" : status}
