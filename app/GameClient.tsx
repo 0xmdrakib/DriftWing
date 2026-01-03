@@ -1063,16 +1063,7 @@ export default function GameClient() {
 </div>
 
         <div className="dwRight">
-          <button
-            className="dwBtn dwIconBtn"
-            onClick={() => restart("play")}
-            type="button"
-            aria-label="Restart"
-            title="Restart"
-          >
-            ↻
-          </button>
-          <button className="dwBtn dwPrimary" onClick={account ? () => {} : connect} type="button">
+<button className="dwBtn dwPrimary" onClick={account ? () => {} : connect} type="button">
             {account ? acctShort : "Connect"}
           </button>
         </div>
