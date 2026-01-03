@@ -6,41 +6,48 @@ const APP_URL =
   process.env.NEXT_PUBLIC_APP_URL ||
   (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
 
-const BASE_APP_ID = process.env.NEXT_PUBLIC_BASE_APP_ID || process.env.BASE_APP_ID || "";
+
+const BASE_APP_ID =
+  process.env.NEXT_PUBLIC_BASE_APP_ID || "695832f84d3a403912ed8a9c";
+
+const ASSET_V = process.env.NEXT_PUBLIC_ASSET_VERSION || "1";
+
 
 export const metadata: Metadata = {
   metadataBase: new URL(APP_URL),
   title: "DriftWing",
   description: "A tiny arcade shooter on Base — every run gets saved onchain.",
   other: {
-    ...(BASE_APP_ID ? { "base:app_id": BASE_APP_ID } : {}),
+    // ✅ Base App ownership verification tag (must be in <head>)
+    "base:app_id": BASE_APP_ID,
+
     // Mini App embed metadata (the launch button + preview).
     // Base + Farcaster both support `fc:miniapp`. Keeping a `fc:frame` fallback
     // helps older clients.
     "fc:miniapp": JSON.stringify({
       version: "1",
-      imageUrl: `${APP_URL}/hero.png`,
+      imageUrl: `${APP_URL}/hero.png?v=${ASSET_V}`,
       button: {
         title: "Play DriftWing",
         action: {
           type: "launch_miniapp",
           name: "DriftWing",
           url: APP_URL,
-          splashImageUrl: `${APP_URL}/splash.png`,
+          splashImageUrl: `${APP_URL}/splash.png?v=${ASSET_V}`,
           splashBackgroundColor: "#070A12",
         },
       },
     }),
     "fc:frame": JSON.stringify({
       version: "1",
-      imageUrl: `${APP_URL}/hero.png`,
+      imageUrl: `${APP_URL}/hero.png?v=${ASSET_V}`,
       button: {
         title: "Play DriftWing",
         action: {
           type: "launch_frame",
           name: "DriftWing",
           url: APP_URL,
-          splashImageUrl: `${APP_URL}/splash.png`,
+          splashImageUrl: `${APP_URL}/splash.png?v=${ASSET_V}`,
           splashBackgroundColor: "#070A12",
         },
       },
@@ -53,9 +60,9 @@ export const metadata: Metadata = {
     siteName: "DriftWing",
     images: [
       {
-        url: "/og.png",
+        url: `/hero.png?v=${ASSET_V}`,
         width: 1200,
-        height: 630,
+        height: 800,
         alt: "DriftWing",
       },
     ],
@@ -65,7 +72,7 @@ export const metadata: Metadata = {
     card: "summary_large_image",
     title: "DriftWing",
     description: "Move, shoot, survive. Every score is written onchain (Base).",
-    images: ["/hero.png"],
+    images: [`/hero.png?v=${ASSET_V}`],
   },
 };
 
