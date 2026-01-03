@@ -607,7 +607,7 @@ html, body { background-attachment: fixed; }
   position:absolute;
   left: 12px;
   right: 12px;
-  bottom: calc(env(safe-area-inset-bottom) + 12px);
+  bottom: calc(env(safe-area-inset-bottom) + 6px);
   display:flex;
   flex-direction: column;
   gap: 8px;
