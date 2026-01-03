@@ -6,7 +6,7 @@
   },
   "miniapp": {
     "version": "1",
-    "name": "DriftWing",
+    "name": "Drift Wing",
     "homeUrl": "https://driftwing.vercel.app/",
     "iconUrl": "https://driftwing.vercel.app/icon.png?v=1",
     "splashImageUrl": "https://driftwing.vercel.app/splash.png?v=1",
