@@ -15,7 +15,7 @@ const ASSET_V = process.env.NEXT_PUBLIC_ASSET_VERSION || "1";
 
 export const metadata: Metadata = {
   metadataBase: new URL(APP_URL),
-  title: "DriftWing",
+  title: "Drift Wing",
   description: "A tiny arcade shooter on Base — every run gets saved onchain.",
   other: {
     // ✅ Base App ownership verification tag (must be in <head>)
@@ -28,10 +28,10 @@ export const metadata: Metadata = {
       version: "1",
       imageUrl: `${APP_URL}/hero.png?v=${ASSET_V}`,
       button: {
-        title: "Play DriftWing",
+        title: "Play Drift Wing",
         action: {
           type: "launch_miniapp",
-          name: "DriftWing",
+          name: "Drift Wing",
           url: APP_URL,
           splashImageUrl: `${APP_URL}/splash.png?v=${ASSET_V}`,
           splashBackgroundColor: "#070A12",
@@ -42,10 +42,10 @@ export const metadata: Metadata = {
       version: "1",
       imageUrl: `${APP_URL}/hero.png?v=${ASSET_V}`,
       button: {
-        title: "Play DriftWing",
+        title: "Play Drift Wing",
         action: {
           type: "launch_frame",
-          name: "DriftWing",
+          name: "Drift Wing",
           url: APP_URL,
           splashImageUrl: `${APP_URL}/splash.png?v=${ASSET_V}`,
           splashBackgroundColor: "#070A12",
@@ -57,20 +57,20 @@ export const metadata: Metadata = {
     title: "DriftWing",
     description: "Move, shoot, survive. Every score is written onchain (Base).",
     url: APP_URL,
-    siteName: "DriftWing",
+    siteName: "Drift Wing",
     images: [
       {
         url: `/hero.png?v=${ASSET_V}`,
         width: 1200,
         height: 800,
-        alt: "DriftWing",
+        alt: "Drift Wing",
       },
     ],
     type: "website",
   },
   twitter: {
     card: "summary_large_image",
-    title: "DriftWing",
+    title: "Drift Wing",
     description: "Move, shoot, survive. Every score is written onchain (Base).",
     images: [`/hero.png?v=${ASSET_V}`],
   },
