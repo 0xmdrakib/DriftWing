@@ -8,7 +8,7 @@ const APP_URL =
 
 
 const BASE_APP_ID =
-  process.env.NEXT_PUBLIC_BASE_APP_ID || "";
+  process.env.NEXT_PUBLIC_BASE_APP_ID || "695832f84d3a403912ed8a9c";
 
 export const metadata: Metadata = {
   metadataBase: new URL(APP_URL),
