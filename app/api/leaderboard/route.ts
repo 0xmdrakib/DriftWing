@@ -3,13 +3,14 @@ import { createPublicClient, decodeEventLog, http } from "viem";
 import { base } from "viem/chains";
 import { scoreboardAbi } from "@/lib/scoreboardAbi";
 import {
-  loadWeekStore,
+  currentWeekId,
+  getWeekLeaderboardView,
+  isStorageEnabled,
+  rankOf,
+  rolloverIfNeeded,
   topEntries,
   upsertWeeklyBest,
-  weekIdFromTs,
-  weekStartMs,
   weekWindowFromId,
-  rankOf,
 } from "@/lib/leaderboard";
 
 export const runtime = "nodejs";
@@ -21,40 +22,58 @@ function json(data: any, status = 200) {
   return NextResponse.json(data, { status });
 }
 
-function nowMs() {
-  return Date.now();
-}
-
-function currentWeekId() {
-  return weekIdFromTs(nowMs());
+function rankInTop(top: Array<{ address: string }>, account: string) {
+  const a = account.toLowerCase();
+  const idx = top.findIndex((e) => e.address.toLowerCase() === a);
+  return idx >= 0 ? idx + 1 : null;
 }
 
 export async function GET(req: Request) {
   const url = new URL(req.url);
+  const nowMs = Date.now();
+  const nowWeek = currentWeekId(nowMs);
+
   const weekParam = url.searchParams.get("week");
-  const weekId = weekParam ? Number(weekParam) : currentWeekId();
-  if (!Number.isFinite(weekId)) return json({ error: "Invalid week" }, 400);
-
-  const store = await loadWeekStore(weekId);
-  const { startMs, endMs } = weekWindowFromId(weekId);
-
-  const top = topEntries(store, 100).map((e) => ({
-    address: e.address,
-    score: e.score,
-  }));
+  const requestedWeek = weekParam ? Number(weekParam) : nowWeek;
+  if (!Number.isFinite(requestedWeek) || requestedWeek < 0) return json({ error: "Invalid week" }, 400);
 
   const account = url.searchParams.get("account");
-  const myRank = account ? rankOf(store, account) : null;
+
+  const view = await getWeekLeaderboardView({ weekId: requestedWeek, nowWeekId: nowWeek });
+
+  if (view.kind === "snapshot") {
+    return json({
+      kind: view.kind,
+      weekId: view.weekId,
+      currentWeekId: nowWeek,
+      weekStartMs: view.weekStartMs,
+      weekEndMs: view.weekEndMs,
+      nowMs,
+      secondsRemaining: 0,
+      top: view.top.map((e) => ({ address: e.address, score: e.score })),
+      myRank: account ? rankInTop(view.top, account) : null,
+      totalPlayers: view.totalPlayers,
+      kvEnabled: isStorageEnabled(),
+    });
+  }
+
+  // live
+  const { startMs, endMs } = weekWindowFromId(view.weekId);
+  const top = topEntries(view.store, 100).map((e) => ({ address: e.address, score: e.score }));
+  const myRank = account ? rankOf(view.store, account) : null;
 
   return json({
-    weekId,
+    kind: view.kind,
+    weekId: view.weekId,
+    currentWeekId: nowWeek,
     weekStartMs: startMs,
     weekEndMs: endMs,
-    nowMs: nowMs(),
-    secondsRemaining: Math.max(0, Math.floor((endMs - nowMs()) / 1000)),
+    nowMs,
+    secondsRemaining: Math.max(0, Math.floor((endMs - nowMs) / 1000)),
     top,
     myRank,
-    kvEnabled: Boolean(process.env.KV_REST_API_URL && process.env.KV_REST_API_TOKEN),
+    totalPlayers: Object.keys(view.store.entries).length,
+    kvEnabled: isStorageEnabled(),
   });
 }
 
@@ -76,7 +95,7 @@ export async function POST(req: Request) {
   let receipt: any;
   try {
     receipt = await client.getTransactionReceipt({ hash: txHash });
-  } catch (e: any) {
+  } catch {
     // Pending or not found yet.
     return json({ status: "pending", message: "Transaction not found yet. Try again in a few seconds." }, 202);
   }
@@ -119,7 +138,7 @@ export async function POST(req: Request) {
 
   const tsMs = tsSec * 1000;
 
-  // Store/update the weekly best for this player.
+  // 1) Ingest the score into the week implied by the onchain timestamp.
   const { weekId, store } = await upsertWeeklyBest({
     tsMs,
     address: player,
@@ -127,11 +146,15 @@ export async function POST(req: Request) {
     txHash,
   });
 
+  // 2) Then rollover/snapshot based on *server now* (cron-less), AFTER ingestion.
+  await rolloverIfNeeded(currentWeekId(Date.now()));
+
   const { startMs, endMs } = weekWindowFromId(weekId);
 
   return json({
     status: "ok",
     weekId,
+    currentWeekId: currentWeekId(Date.now()),
     weekStartMs: startMs,
     weekEndMs: endMs,
     top: topEntries(store, 100).map((e) => ({ address: e.address, score: e.score })),
