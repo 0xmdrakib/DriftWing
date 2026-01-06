@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createPublicClient, decodeEventLog, http } from "viem";
 import { base } from "viem/chains";
 import { scoreboardAbi } from "@/lib/scoreboardAbi";
+import { storageDebugInfo } from "@/lib/storage";
 import {
   currentWeekId,
   getWeekLeaderboardView,
@@ -24,8 +25,28 @@ function json(data: any, status = 200) {
 
 function errorJson(where: string, err: unknown) {
   console.error(`[leaderboard:${where}]`, err);
+  const e: any = err;
   const msg = err instanceof Error ? err.message : String(err);
-  return json({ error: "Internal error", where, message: msg.slice(0, 200) }, 500);
+  const cause = e?.cause;
+  const details = cause
+    ? {
+        name: cause?.name,
+        message: cause?.message ?? String(cause),
+        code: cause?.code,
+        errno: cause?.errno,
+        syscall: cause?.syscall,
+      }
+    : null;
+  return json(
+    {
+      error: "Internal error",
+      where,
+      message: msg.slice(0, 200),
+      storage: storageDebugInfo(),
+      cause: details,
+    },
+    500
+  );
 }
 
 function rankInTop(top: Array<{ address: string }>, account: string) {
