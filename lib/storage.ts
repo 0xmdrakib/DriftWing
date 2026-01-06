@@ -76,9 +76,18 @@ export async function getJson<T>(key: string): Promise<T | null> {
 
   if (mode === "upstash") {
     const redis = await getUpstashClient();
+    // NOTE: @upstash/redis does **automatic deserialization** by default.
+    // That means if we stored JSON (object/array/number/bool), redis.get(key)
+    // can return a non-string value (e.g. an object), even if we originally
+    // stored a JSON string.
     const raw = (await redis.get(key)) as any;
-    if (typeof raw !== "string") return null;
-    return (safeJsonParse(raw) ?? null) as T | null;
+    if (raw === null || raw === undefined) return null;
+    if (typeof raw === "string") {
+      const parsed = safeJsonParse(raw);
+      return (parsed ?? (raw as any)) as T | null;
+    }
+    // object | number | boolean
+    return raw as T;
   }
 
   if (mode === "vercel_kv") {
@@ -100,7 +109,8 @@ export async function setJson(key: string, value: any) {
 
   if (mode === "upstash") {
     const redis = await getUpstashClient();
-    await redis.set(key, JSON.stringify(value));
+    // Store as native value; the client serializes for us.
+    await redis.set(key, value);
     return;
   }
 
