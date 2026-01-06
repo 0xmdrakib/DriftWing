@@ -10,7 +10,7 @@ declare global {
 const mem = globalThis.__dwStorageMem || (globalThis.__dwStorageMem = new Map());
 
 function hasUpstashEnv() {
-  return Boolean(process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN);
+  return Boolean((process.env.UPSTASH_REDIS_REST_URL || "").trim() && (process.env.UPSTASH_REDIS_REST_TOKEN || "").trim());
 }
 
 function hasVercelKvEnv() {
@@ -27,10 +27,31 @@ let upstashClient: any | null = null;
 async function getUpstashClient() {
   if (upstashClient) return upstashClient;
   const { Redis } = await import("@upstash/redis");
-  const url = process.env.UPSTASH_REDIS_REST_URL!;
-  const token = process.env.UPSTASH_REDIS_REST_TOKEN!;
+  const url = (process.env.UPSTASH_REDIS_REST_URL || "").trim();
+  const token = (process.env.UPSTASH_REDIS_REST_TOKEN || "").trim();
+  if (!url || !token) throw new Error("Missing UPSTASH_REDIS_REST_URL/UPSTASH_REDIS_REST_TOKEN");
+  if (!/^https:\/\//i.test(url)) {
+    throw new Error("UPSTASH_REDIS_REST_URL must start with https:// (REST URL, not rediss://)");
+  }
   upstashClient = new Redis({ url, token });
   return upstashClient;
+}
+
+export function storageDebugInfo() {
+  const mode = storageMode();
+  const url = (process.env.UPSTASH_REDIS_REST_URL || "").trim();
+  let host: string | null = null;
+  try {
+    host = url ? new URL(url).host : null;
+  } catch {
+    host = null;
+  }
+  return {
+    mode,
+    hasUpstash: hasUpstashEnv(),
+    hasVercelKv: hasVercelKvEnv(),
+    upstashHost: host,
+  };
 }
 
 let vercelKvClient: any | null = null;
