@@ -192,8 +192,16 @@ export default function GameClient() {
       if (typeof weekOverride === "number" && Number.isFinite(weekOverride)) params.set("week", String(weekOverride));
       const qs = params.toString();
       const res = await fetch(`/api/leaderboard${qs ? `?${qs}` : ""}`, { cache: "no-store" });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data?.error || "Failed to load leaderboard");
+      const raw = await res.text();
+      let data: any = null;
+      try {
+        data = raw ? JSON.parse(raw) : null;
+      } catch {
+        throw new Error(raw ? raw.slice(0, 200) : `Empty response (HTTP ${res.status})`);
+      }
+      if (!res.ok) {
+        throw new Error(data?.message || data?.error || `Failed to load leaderboard (HTTP ${res.status})`);
+      }
       setLbWeekId(data.weekId);
       setLbCurrentWeekId(typeof data.currentWeekId === "number" ? data.currentWeekId : data.weekId);
       setLbEndMs(data.weekEndMs);
