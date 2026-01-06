@@ -1192,7 +1192,7 @@ export default function GameClient() {
 
               {lbKvEnabled === false && (
                 <div className="dwHint">
-                  Leaderboard storage is running in local memory. Configure KV env vars on Vercel to persist weekly rankings.
+                  Leaderboard storage is running in local memory. Configure KV_REST_API_URL/KV_REST_API_TOKEN (Vercel KV) or UPSTASH_REDIS_REST_URL/UPSTASH_REDIS_REST_TOKEN (personal Upstash) to persist weekly rankings.
                 </div>
               )}
 
