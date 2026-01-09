@@ -24,6 +24,7 @@
     "ogTitle": "DriftWing",
     "ogDescription": "A minimal one touch shooter for Base plus Farcaster.",
     "ogImageUrl": "https://driftwing.vercel.app/hero.png?v=1",
-    "noindex": true
+    "noindex": true,
+    "webhookUrl": "https://driftwing.vercel.app/api/webhook"
   }
 }
