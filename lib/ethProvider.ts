@@ -9,6 +9,9 @@ export type Eip1193Provider = {
   removeListener?: (event: string, handler: (...args: any[]) => void) => void;
 };
 
+// Alias with conventional all-caps spelling used by many libs (viem/web3).
+export type EIP1193Provider = Eip1193Provider;
+
 export async function getEthereumProvider(): Promise<Eip1193Provider | null> {
   if (typeof window === "undefined") return null;
 
