@@ -1169,11 +1169,6 @@ export default function GameClient() {
               </div>
 
               <div className="dwLbSwitch">
-                {lbCurrentWeekId != null && lbCurrentWeekId > 0 && (
-                  <button className="dwBtn" onClick={() => loadLeaderboard(lbCurrentWeekId - 1)}>
-                    Last week
-                  </button>
-                )}
                 {lbCurrentWeekId != null && lbWeekId != null && lbWeekId !== lbCurrentWeekId && (
                   <button className="dwBtn" onClick={() => loadLeaderboard()}>
                     This week
