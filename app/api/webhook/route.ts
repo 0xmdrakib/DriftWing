@@ -55,18 +55,24 @@ export async function POST(req: NextRequest) {
 
   const event = parsed?.event ?? parsed;
   const eventName = (event?.event ?? "webhook") as string;
-  const fid = parsed?.fid ?? event?.fid;
+  const fidRaw = parsed?.fid ?? event?.fid;
   const details = event?.notificationDetails;
-  const appFid = details?.appFid ?? event?.appFid;
+
+  // `parseWebhookEvent()` returns the client app FID at the top-level (not inside `notificationDetails`).
+  // Base docs: always use (fid, appFid) together to uniquely identify a user-client combination.
+  const appFidRaw = parsed?.appFid ?? (event as any)?.appFid;
+
+  const fid = Number(fidRaw);
+  const appFid = Number(appFidRaw);
 
   // If the user enabled notifications, Farcaster includes notificationDetails.
-  if (fid && details?.token && details?.url && details?.appFid) {
+  if (Number.isFinite(fid) && Number.isFinite(appFid) && details?.token && details?.url) {
     const cadenceHours = clampCadenceHours(Number(process.env.NOTIF_CADENCE_HOURS ?? "6"));
     const now = Math.floor(Date.now() / 1000);
 
     const rec = await upsertNotification(redis, {
       fid,
-      details: { token: details.token, url: details.url, appFid: details.appFid },
+      details: { token: details.token, url: details.url, appFid },
       cadenceHours,
       now,
     });
@@ -74,7 +80,7 @@ export async function POST(req: NextRequest) {
     await pushEvent(redis, {
       type: eventName,
       fid,
-      appFid: details.appFid,
+      appFid,
       cadenceHours,
       nextSendAt: rec.nextSendAt,
     });
@@ -84,8 +90,8 @@ export async function POST(req: NextRequest) {
 
   // If the user disabled notifications or removed the miniapp, clean up.
   if (
-    fid &&
-    appFid &&
+    Number.isFinite(fid) &&
+    Number.isFinite(appFid) &&
     (eventName.includes("disabled") || eventName.includes("removed"))
   ) {
     await removeNotification(redis, fid, appFid);
@@ -93,6 +99,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true });
   }
 
-  await pushEvent(redis, { type: eventName, fid, appFid, hasDetails: !!details });
+  await pushEvent(redis, { type: eventName, fid: fidRaw, appFid: appFidRaw, hasDetails: !!details });
   return NextResponse.json({ ok: true });
 }
