@@ -11,6 +11,10 @@ import {
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+const APP_URL =
+  process.env.NEXT_PUBLIC_APP_URL ||
+  (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "https://driftwing.vercel.app/");
+
 type SendResult =
   | { ok: true }
   | { ok: false; status?: number; error: string; retryable?: boolean };
@@ -19,16 +23,22 @@ async function sendNotification(rec: NotifRecord): Promise<SendResult> {
   // Customize these defaults for your mini app
   const title = "DriftWing 🪽";
   const body = "Quick check-in: come back to DriftWing.";
+  const targetUrl = APP_URL;
+  // Stable-ish id per send window. Used for Farcaster idempotency.
+  const notificationId = `dw-${rec.cadenceHours}h-${Math.floor(Date.now() / 1000 / (rec.cadenceHours * 60 * 60))}`;
 
   try {
     const res = await fetch(rec.details.url, {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${rec.details.token}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        notification: { title, body },
+        notificationId,
+        title,
+        body,
+        targetUrl,
+        tokens: [rec.details.token],
       }),
     });
 
@@ -37,6 +47,21 @@ async function sendNotification(rec: NotifRecord): Promise<SendResult> {
       // 4xx usually means token revoked/expired
       const retryable = res.status >= 500;
       return { ok: false, status: res.status, error: txt || res.statusText, retryable };
+    }
+
+    // The notifications endpoint returns 200 even when some tokens are invalid or rate limited.
+    // Handle that for the single-token case.
+    try {
+      const data = (await res.json()) as any;
+      const token = rec.details.token;
+      if (Array.isArray(data?.invalidTokens) && data.invalidTokens.includes(token)) {
+        return { ok: false, status: 400, error: "invalid token", retryable: false };
+      }
+      if (Array.isArray(data?.rateLimitedTokens) && data.rateLimitedTokens.includes(token)) {
+        return { ok: false, status: 429, error: "rate limited", retryable: true };
+      }
+    } catch {
+      // Some hosts may not return JSON; treat as success.
     }
 
     return { ok: true };
