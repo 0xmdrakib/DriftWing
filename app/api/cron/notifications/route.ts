@@ -73,8 +73,25 @@ async function sendNotification(rec: NotifRecord): Promise<SendResult> {
 function isAuthorized(req: Request): boolean {
   const secret = process.env.CRON_SECRET;
   if (!secret) return false;
+  // Allow auth via header (recommended) OR query param as a fallback for schedulers
+  // that make header-forwarding fiddly.
+  try {
+    const url = new URL(req.url);
+    const qp = url.searchParams.get("cron_secret");
+    if (qp && qp === secret) return true;
+  } catch {
+    // ignore
+  }
+
   const auth = req.headers.get("authorization") || "";
-  return auth === `Bearer ${secret}`;
+  if (auth === `Bearer ${secret}`) return true;
+
+  // Some QStash setups forward headers under a prefixed name.
+  const forwarded = req.headers.get("upstash-forward-authorization") || "";
+  if (forwarded === `Bearer ${secret}`) return true;
+
+  const x = req.headers.get("x-cron-secret") || "";
+  return x === secret;
 }
 
 export async function GET(req: Request) {
