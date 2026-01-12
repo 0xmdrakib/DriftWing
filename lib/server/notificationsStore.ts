@@ -59,7 +59,10 @@ export async function upsertNotification(
   const existingRaw = (await redis.get(key)) as string | null;
   const existing: NotifRecord | null = existingRaw ? JSON.parse(existingRaw) : null;
 
-  const nextSendAt = existing?.nextSendAt ?? now + cadenceHours * 60 * 60;
+  // For a brand-new subscription, schedule the first send soon so you can verify
+  // end-to-end wiring (webhook → storage → cron → notification server).
+  // After the first send, we fall back to cadenceHours scheduling.
+  const nextSendAt = existing?.nextSendAt ?? now + 60;
 
   const rec: NotifRecord = {
     fid,
