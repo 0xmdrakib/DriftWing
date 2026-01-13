@@ -94,12 +94,18 @@ function isAuthorized(req: Request): boolean {
 }
 
 function safeJsonParse<T>(raw: unknown): T | null {
-  if (typeof raw !== "string") return null;
-  try {
-    return JSON.parse(raw) as T;
-  } catch {
-    return null;
+  if (!raw) return null;
+  // Upstash Redis can return either a string (if we stored a string) OR a decoded object
+  // (if older code stored an object). Accept both.
+  if (typeof raw === "string") {
+    try {
+      return JSON.parse(raw) as T;
+    } catch {
+      return null;
+    }
   }
+  if (raw && typeof raw === "object") return raw as T;
+  return null;
 }
 
 function parseMemberId(memberId: string): { fid: number; appFid: number } | null {
@@ -162,14 +168,55 @@ export async function GET(req: Request) {
 
         const key = NOTIF_KEYS.user(parsed.fid, parsed.appFid);
         const raw = await redis.get(key);
-        const rec = safeJsonParse<NotifRecord>(raw);
+        const rec0 = safeJsonParse<any>(raw);
+
+        // Data migration / validation.
+        // Over time you may have stored different shapes:
+        // - full NotifRecord { details: {token,url,...}, cadenceHours, nextSendAt, ... }
+        // - just NotificationDetails { token, url, appFid }
+        // - webhook-ish { notificationDetails: { token, url } }
+        // Convert anything usable into a proper NotifRecord so cron can send.
+        let rec: NotifRecord | null = null;
+        if (rec0 && typeof rec0 === "object") {
+          const token =
+            (rec0 as any).details?.token ?? (rec0 as any).token ?? (rec0 as any).notificationDetails?.token;
+          const url = (rec0 as any).details?.url ?? (rec0 as any).url ?? (rec0 as any).notificationDetails?.url;
+
+          if (typeof token === "string" && typeof url === "string") {
+            const cadence = (rec0 as any).cadenceHours;
+            const cadenceHours: 1 | 6 | 12 = cadence === 1 || cadence === 6 || cadence === 12 ? cadence : 6;
+            const nextSendAtRaw = (rec0 as any).nextSendAt;
+            const createdAtRaw = (rec0 as any).createdAt;
+            const updatedAtRaw = (rec0 as any).updatedAt;
+
+            rec = {
+              fid: Number.isFinite((rec0 as any).fid) ? (rec0 as any).fid : parsed.fid,
+              appFid: Number.isFinite((rec0 as any).appFid) ? (rec0 as any).appFid : parsed.appFid,
+              details: {
+                token,
+                url,
+                appFid: Number.isFinite((rec0 as any).details?.appFid)
+                  ? (rec0 as any).details.appFid
+                  : parsed.appFid,
+              },
+              cadenceHours,
+              nextSendAt: Number.isFinite(nextSendAtRaw) ? nextSendAtRaw : now, // send ASAP if missing
+              createdAt: Number.isFinite(createdAtRaw) ? createdAtRaw : now,
+              updatedAt: Number.isFinite(updatedAtRaw) ? updatedAtRaw : now,
+            };
+          }
+        }
+
         if (!rec) {
           errors++;
           await pushEvent(redis, { type: "cron_bad_record", memberId, key });
-          // If the stored JSON is corrupted (common when old code wrote non-JSON), clean it up.
+          // If the stored value is unusable, clean it up.
           await removeNotification(redis, parsed.fid, parsed.appFid);
           continue;
         }
+
+        // Persist the normalized shape so future cron runs don't have to migrate again.
+        await redis.set(NOTIF_KEYS.user(rec.fid, rec.appFid), JSON.stringify(rec));
 
         // Not actually due (race / schedule jitter)
         if (rec.nextSendAt > now) continue;
