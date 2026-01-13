@@ -102,9 +102,37 @@ export async function GET(req: Request) {
 
   const now = Math.floor(Date.now() / 1000);
 
-  // Grab a small batch of due members
-  const members: string[] =
-    (await redis.zrange(NOTIF_KEYS.dueZ, 0, now, { byScore: true, offset: 0, count: 25 })) ?? [];
+  // Grab a small batch of due members.
+  // NOTE: Upstash's JS client expects LIMIT via `limit: { offset, count }`.
+  // Using `offset/count` at the top-level throws (→ Vercel returns 500), which is
+  // exactly what you're seeing in QStash logs.
+  let members: string[] = [];
+  try {
+    members =
+      ((await redis.zrange(NOTIF_KEYS.dueZ, 0, now, {
+        byScore: true,
+        limit: { offset: 0, count: 25 },
+      })) as string[]) ?? [];
+  } catch (e: any) {
+    // Fallback: try without LIMIT so the endpoint still works (just with a larger batch).
+    await pushEvent(redis, {
+      type: "cron_zrange_error",
+      hint: e?.message ?? String(e),
+    });
+
+    try {
+      members = ((await redis.zrange(NOTIF_KEYS.dueZ, 0, now, { byScore: true })) as string[]) ?? [];
+    } catch (e2: any) {
+      await pushEvent(redis, {
+        type: "cron_fatal",
+        hint: e2?.message ?? String(e2),
+      });
+      return NextResponse.json(
+        { ok: false, error: "Redis zrange failed", hint: e2?.message ?? String(e2) },
+        { status: 500 }
+      );
+    }
+  }
 
   let due = 0;
   let sent = 0;
