@@ -20,8 +20,8 @@ type SendResult =
 
 async function sendNotification(rec: NotifRecord): Promise<SendResult> {
   // Customize these defaults for your mini app
-  const title = "DriftWing 🪽";
-  const body = "Quick check-in: come back to DriftWing.";
+  const title = "Drift Wing ✈️";
+  const body = "Play DriftWing and beat leaderboard again.";
   const targetUrl = APP_URL;
   // Stable-ish id per send window. Used for Farcaster idempotency.
   const notificationId = `dw-${rec.cadenceHours}h-${Math.floor(Date.now() / 1000 / (rec.cadenceHours * 60 * 60))}`;
