@@ -56,8 +56,19 @@ export async function upsertNotification(
   const appFid = details.appFid;
   const key = NOTIF_KEYS.user(fid, appFid);
 
-  const existingRaw = (await redis.get(key)) as string | null;
-  const existing: NotifRecord | null = existingRaw ? JSON.parse(existingRaw) : null;
+  // Upstash may return either a JSON string (if we stored a string) OR a decoded object
+  // (if older code stored an object). Handle both without ever throwing.
+  const existingRaw = (await redis.get(key)) as unknown;
+  let existing: NotifRecord | null = null;
+  try {
+    if (typeof existingRaw === "string") {
+      existing = JSON.parse(existingRaw) as NotifRecord;
+    } else if (existingRaw && typeof existingRaw === "object") {
+      existing = existingRaw as NotifRecord;
+    }
+  } catch {
+    existing = null;
+  }
 
   // For a brand-new subscription, schedule the first send soon so you can verify
   // end-to-end wiring (webhook → storage → cron → notification server).
@@ -83,8 +94,15 @@ export async function upsertNotification(
 export async function loadNotification(redis: any, memberId: string): Promise<NotifRecord | null> {
   const parsed = parseMemberId(memberId);
   if (!parsed) return null;
-  const raw = (await redis.get(NOTIF_KEYS.user(parsed.fid, parsed.appFid))) as string | null;
-  return raw ? (JSON.parse(raw) as NotifRecord) : null;
+  const raw = (await redis.get(NOTIF_KEYS.user(parsed.fid, parsed.appFid))) as unknown;
+  if (!raw) return null;
+  try {
+    if (typeof raw === "string") return JSON.parse(raw) as NotifRecord;
+    if (raw && typeof raw === "object") return raw as NotifRecord;
+  } catch {
+    // ignore
+  }
+  return null;
 }
 
 export async function removeNotification(redis: any, fid: number, appFid: number): Promise<void> {
