@@ -103,15 +103,14 @@ export async function GET(req: Request) {
   const now = Math.floor(Date.now() / 1000);
 
   // Grab a small batch of due members.
-  // NOTE: Upstash's JS client expects LIMIT via `limit: { offset, count }`.
-  // Using `offset/count` at the top-level throws (→ Vercel returns 500), which is
-  // exactly what you're seeing in QStash logs.
+  // @upstash/redis v1.x paginates ZRANGE BYSCORE via `offset`/`count`.
   let members: string[] = [];
   try {
     members =
       ((await redis.zrange(NOTIF_KEYS.dueZ, 0, now, {
         byScore: true,
-        limit: { offset: 0, count: 25 },
+        offset: 0,
+        count: 25,
       })) as string[]) ?? [];
   } catch (e: any) {
     // Fallback: try without LIMIT so the endpoint still works (just with a larger batch).
