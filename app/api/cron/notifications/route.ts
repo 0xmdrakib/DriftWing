@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { getRedis } from "@/lib/server/redis";
 import {
-  loadNotification,
   NOTIF_KEYS,
   pushEvent,
   removeNotification,
@@ -94,117 +93,160 @@ function isAuthorized(req: Request): boolean {
   return x === secret;
 }
 
+function safeJsonParse<T>(raw: unknown): T | null {
+  if (typeof raw !== "string") return null;
+  try {
+    return JSON.parse(raw) as T;
+  } catch {
+    return null;
+  }
+}
+
+function parseMemberId(memberId: string): { fid: number; appFid: number } | null {
+  const [fidStr, appFidStr] = memberId.split(":");
+  const fid = Number(fidStr);
+  const appFid = Number(appFidStr);
+  if (!Number.isFinite(fid) || !Number.isFinite(appFid)) return null;
+  return { fid, appFid };
+}
+
 export async function GET(req: Request) {
   if (!isAuthorized(req)) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
 
   const redis = getRedis();
   if (!redis) return NextResponse.json({ ok: false, error: "Redis not configured" }, { status: 500 });
 
-  const now = Math.floor(Date.now() / 1000);
-
-  // Grab a small batch of due members.
-  // @upstash/redis v1.x paginates ZRANGE BYSCORE via `offset`/`count`.
-  let members: string[] = [];
+  // Never let this endpoint crash (QStash will retry forever on 500).
+  // Instead: log the error into Redis + return a 200 with {ok:false}.
   try {
-    members =
-      ((await redis.zrange(NOTIF_KEYS.dueZ, 0, now, {
-        byScore: true,
-        offset: 0,
-        count: 25,
-      })) as string[]) ?? [];
-  } catch (e: any) {
-    // Fallback: try without LIMIT so the endpoint still works (just with a larger batch).
-    await pushEvent(redis, {
-      type: "cron_zrange_error",
-      hint: e?.message ?? String(e),
-    });
+    const now = Math.floor(Date.now() / 1000);
 
+    // Grab a small batch of due members.
+    // @upstash/redis v1.x paginates ZRANGE BYSCORE via `offset`/`count`.
+    let members: string[] = [];
     try {
+      members =
+        ((await redis.zrange(NOTIF_KEYS.dueZ, 0, now, {
+          byScore: true,
+          offset: 0,
+          count: 25,
+        })) as string[]) ?? [];
+    } catch (e: any) {
+      // Fallback: try without LIMIT so the endpoint still works (just with a larger batch).
+      await pushEvent(redis, {
+        type: "cron_zrange_error",
+        hint: e?.message ?? String(e),
+      });
+
       members = ((await redis.zrange(NOTIF_KEYS.dueZ, 0, now, { byScore: true })) as string[]) ?? [];
-    } catch (e2: any) {
-      await pushEvent(redis, {
-        type: "cron_fatal",
-        hint: e2?.message ?? String(e2),
-      });
-      return NextResponse.json(
-        { ok: false, error: "Redis zrange failed", hint: e2?.message ?? String(e2) },
-        { status: 500 }
-      );
-    }
-  }
-
-  let due = 0;
-  let sent = 0;
-  let invalid = 0;
-  let rateLimited = 0;
-
-  for (const memberId of members) {
-    due++;
-
-    const rec = await loadNotification(redis, memberId);
-    if (!rec) {
-      await pushEvent(redis, { type: "cron_missing_record", memberId });
-      continue;
     }
 
-    // Not actually due (race / schedule jitter)
-    if (rec.nextSendAt > now) continue;
+    let due = 0;
+    let sent = 0;
+    let invalid = 0;
+    let rateLimited = 0;
+    let errors = 0;
 
-    const result = await sendNotification(rec);
+    for (const memberId of members) {
+      due++;
 
-    if (result.ok) {
-      sent++;
+      try {
+        const parsed = parseMemberId(memberId);
+        if (!parsed) {
+          errors++;
+          await pushEvent(redis, { type: "cron_bad_member", memberId });
+          // best-effort cleanup
+          await redis.zrem(NOTIF_KEYS.dueZ, memberId);
+          continue;
+        }
 
-      // schedule next run
-      const nextSendAt = now + rec.cadenceHours * 60 * 60;
-      rec.nextSendAt = nextSendAt;
-      rec.updatedAt = now;
+        const key = NOTIF_KEYS.user(parsed.fid, parsed.appFid);
+        const raw = await redis.get(key);
+        const rec = safeJsonParse<NotifRecord>(raw);
+        if (!rec) {
+          errors++;
+          await pushEvent(redis, { type: "cron_bad_record", memberId, key });
+          // If the stored JSON is corrupted (common when old code wrote non-JSON), clean it up.
+          await removeNotification(redis, parsed.fid, parsed.appFid);
+          continue;
+        }
 
-      await redis.set(NOTIF_KEYS.user(rec.fid, rec.appFid), JSON.stringify(rec));
-      await redis.zadd(NOTIF_KEYS.dueZ, { score: rec.nextSendAt, member: memberId });
+        // Not actually due (race / schedule jitter)
+        if (rec.nextSendAt > now) continue;
 
-      await pushEvent(redis, { type: "cron_sent", fid: rec.fid, appFid: rec.appFid, nextSendAt });
-    } else {
-      if (result.status === 429) {
-        rateLimited++;
+        const result = await sendNotification(rec);
+
+        if (result.ok) {
+          sent++;
+
+          // schedule next run
+          const nextSendAt = now + rec.cadenceHours * 60 * 60;
+          rec.nextSendAt = nextSendAt;
+          rec.updatedAt = now;
+
+          await redis.set(NOTIF_KEYS.user(rec.fid, rec.appFid), JSON.stringify(rec));
+          await redis.zadd(NOTIF_KEYS.dueZ, { score: rec.nextSendAt, member: memberId });
+
+          await pushEvent(redis, { type: "cron_sent", fid: rec.fid, appFid: rec.appFid, nextSendAt });
+          continue;
+        }
+
+        if (result.status === 429) {
+          rateLimited++;
+          await pushEvent(redis, {
+            type: "cron_rate_limited",
+            fid: rec.fid,
+            appFid: rec.appFid,
+            status: result.status,
+            error: result.error,
+          });
+          // keep it in the queue; we'll try later
+          continue;
+        }
+
+        // If token is invalid / revoked, drop it.
+        if (result.status && result.status >= 400 && result.status < 500 && result.status !== 429) {
+          invalid++;
+          await pushEvent(redis, {
+            type: "cron_invalid_token",
+            fid: rec.fid,
+            appFid: rec.appFid,
+            status: result.status,
+            error: result.error,
+          });
+          await removeNotification(redis, rec.fid, rec.appFid);
+          continue;
+        }
+
+        // 5xx or network -> retry later (bump by 10 min)
         await pushEvent(redis, {
-          type: "cron_rate_limited",
+          type: "cron_retry",
           fid: rec.fid,
           appFid: rec.appFid,
           status: result.status,
           error: result.error,
         });
-        // keep it in the queue; we'll try later
-        continue;
-      }
 
-      // If token is invalid / revoked, drop it.
-      if (result.status && result.status >= 400 && result.status < 500 && result.status !== 429) {
-        invalid++;
+        const bump = now + 10 * 60;
+        await redis.zadd(NOTIF_KEYS.dueZ, { score: bump, member: memberId });
+      } catch (e: any) {
+        errors++;
         await pushEvent(redis, {
-          type: "cron_invalid_token",
-          fid: rec.fid,
-          appFid: rec.appFid,
-          status: result.status,
-          error: result.error,
+          type: "cron_member_error",
+          memberId,
+          hint: e?.message ?? String(e),
         });
-        await removeNotification(redis, rec.fid, rec.appFid);
-        continue;
       }
-
-      // 5xx or network -> retry later (bump by 10 min)
-      await pushEvent(redis, {
-        type: "cron_retry",
-        fid: rec.fid,
-        appFid: rec.appFid,
-        status: result.status,
-        error: result.error,
-      });
-
-      const bump = now + 10 * 60;
-      await redis.zadd(NOTIF_KEYS.dueZ, { score: bump, member: memberId });
     }
-  }
 
-  return NextResponse.json({ ok: true, due, sent, invalid, rateLimited });
+    return NextResponse.json({ ok: true, due, sent, invalid, rateLimited, errors });
+  } catch (e: any) {
+    try {
+      await pushEvent(redis, { type: "cron_unhandled", hint: e?.message ?? String(e) });
+    } catch {
+      // last resort: swallow; returning 200 prevents QStash retry storms
+    }
+    // Return 200 to stop infinite retries; details are in dw:notif:events.
+    return NextResponse.json({ ok: false, error: "cron_unhandled", hint: e?.message ?? String(e) }, { status: 200 });
+  }
 }
