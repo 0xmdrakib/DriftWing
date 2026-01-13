@@ -33,13 +33,17 @@ export function getPaymasterProxyUrl(): string | null {
 
 async function walletGetCapabilities(
   eth: EIP1193Provider,
-  account?: Hex
+  account?: Hex,
+  chainIds?: Hex[]
 ): Promise<PaymasterCapabilities | null> {
   // Wallets differ on params shape. Try a few harmless variants.
+  // Per EIP-5792, the canonical form is: [account, [chainId1, chainId2, ...]].
   const variants: any[] = [
     [],
+    account && chainIds?.length ? [account, chainIds] : null,
     account ? [account] : null,
     account ? [{ account }] : null,
+    account && chainIds?.length ? [{ account, chainIds }] : null,
   ].filter(Boolean);
 
   for (const params of variants) {
@@ -63,9 +67,16 @@ export async function supportsPaymaster(
   chainIdHex: Hex,
   account?: Hex
 ): Promise<boolean> {
-  const caps = await walletGetCapabilities(eth, account);
+  // Query only the chain we care about first (some wallets require this param).
+  const caps = await walletGetCapabilities(eth, account, [chainIdHex]);
   if (!caps) return false;
-  const entry = caps[chainIdHex];
+  // Some stacks (e.g. wrapper libs) return numeric chain IDs instead of hex keys.
+  const chainIdNum = Number.parseInt(chainIdHex, 16);
+  const anyCaps = caps as any;
+  const entry =
+    (anyCaps?.[chainIdHex] as any) ??
+    (anyCaps?.[chainIdNum] as any) ??
+    (anyCaps?.['0x0'] as any);
   return Boolean(entry?.paymasterService?.supported);
 }
 
