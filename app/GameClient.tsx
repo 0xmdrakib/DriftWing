@@ -3,7 +3,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { sdk } from "@farcaster/miniapp-sdk";
 import { hasScoreboard, readBestScore, submitScore, waitForReceipt } from "@/lib/chain";
-import { getEthereumProvider } from "@/lib/ethProvider";
+import {
+  getEthereumProvider,
+  getPreferredInjectedWalletId,
+  listInjectedWallets,
+  setPreferredInjectedWalletId,
+  type InjectedWallet,
+} from "@/lib/ethProvider";
 
 type Phase = "menu" | "play" | "over";
 type Difficulty = "easy" | "medium" | "hard";
@@ -149,6 +155,11 @@ export default function GameClient() {
 
   const [account, setAccount] = useState<`0x${string}` | null>(null);
   const [saving, setSaving] = useState(false);
+
+  // Web-only: when multiple injected wallets are present (MetaMask + Rabby, etc.),
+  // show a picker so the user can choose which injected provider to use.
+  const [walletPickerOpen, setWalletPickerOpen] = useState(false);
+  const [injectedWalletOptions, setInjectedWalletOptions] = useState<InjectedWallet[]>([]);
 // Leaderboard UI (weekly top 100)
   const [lbOpen, setLbOpen] = useState(false);
   const [lbLoading, setLbLoading] = useState(false);
@@ -317,23 +328,61 @@ export default function GameClient() {
     setPhase(p);
   }
 
+  async function doConnect() {
+    const eth = await getEthereumProvider();
+    if (!eth) throw new Error("No wallet provider found");
+    const accounts = (await eth.request({ method: "eth_requestAccounts" })) as string[];
+    const a = accounts?.[0] as `0x${string}` | undefined;
+    if (!a) throw new Error("No account");
+    setAccount(a);
+    setStatus("Wallet connected");
+
+    if (canChain) {
+      const b = await readBestScore(a);
+      if (typeof b === "number") setBestUi(b);
+    }
+  }
+
   async function connect() {
     try {
-      const eth = await getEthereumProvider();
-      if (!eth) throw new Error("No wallet provider found");
-      const accounts = (await eth.request({ method: "eth_requestAccounts" })) as string[];
-      const a = accounts?.[0] as `0x${string}` | undefined;
-      if (!a) throw new Error("No account");
-      setAccount(a);
-      setStatus("Wallet connected");
-
-      if (canChain) {
-        const b = await readBestScore(a);
-        if (typeof b === "number") setBestUi(b);
+      // If we're not in a Farcaster Mini App, prefer injected wallet UX on web.
+      let inMiniApp = false;
+      try {
+        inMiniApp = await sdk.isInMiniApp();
+      } catch {
+        inMiniApp = false;
       }
+
+      if (!inMiniApp) {
+        const wallets = await listInjectedWallets();
+        const hasChoice = Boolean(getPreferredInjectedWalletId());
+        if (wallets.length > 1 && !hasChoice) {
+          setInjectedWalletOptions(wallets);
+          setWalletPickerOpen(true);
+          return;
+        }
+      }
+
+      await doConnect();
     } catch (e: any) {
       setStatus(e?.message || "Wallet connect failed");
     }
+  }
+
+  async function chooseInjectedWallet(w: InjectedWallet) {
+    try {
+      setPreferredInjectedWalletId(w.id);
+      setWalletPickerOpen(false);
+      setInjectedWalletOptions([]);
+      await doConnect();
+    } catch (e: any) {
+      setStatus(e?.message || "Wallet connect failed");
+    }
+  }
+
+  function closeWalletPicker() {
+    setWalletPickerOpen(false);
+    setInjectedWalletOptions([]);
   }
 
   async function saveScoreOnchain(score: number, restartAfter: boolean) {
@@ -1238,6 +1287,43 @@ export default function GameClient() {
                   type="button"
                 >
                   Refresh
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {walletPickerOpen && (
+          <div className="dwOverlay dwOverlayTop" onClick={closeWalletPicker}>
+            <div className="dwModal" onClick={(e) => e.stopPropagation()}>
+              <div className="dwModalTitle">Choose wallet</div>
+              <div className="dwNote">
+                Multiple injected wallets were detected in your browser. Select the one you want to connect with.
+              </div>
+
+              <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 12 }}>
+                {injectedWalletOptions.map((w) => (
+                  <button
+                    key={w.id}
+                    className="dwBtn"
+                    type="button"
+                    onClick={() => chooseInjectedWallet(w)}
+                    style={{ display: "flex", alignItems: "center", gap: 10, justifyContent: "flex-start" }}
+                  >
+                    {w.icon ? (
+                      // EIP-6963 icons are usually data URIs.
+                      <img src={w.icon} alt="" width={18} height={18} style={{ borderRadius: 4 }} />
+                    ) : (
+                      <span style={{ width: 18, display: "inline-block", opacity: 0.8 }}>◦</span>
+                    )}
+                    <span>{w.name}</span>
+                  </button>
+                ))}
+              </div>
+
+              <div className="dwRow" style={{ justifyContent: "flex-end" }}>
+                <button className="dwBtn" type="button" onClick={closeWalletPicker}>
+                  Cancel
                 </button>
               </div>
             </div>
