@@ -1,4 +1,5 @@
 import type { EIP1193Provider } from './ethProvider';
+import { appendBuilderCodesSuffix } from './builderCodes';
 
 type Hex = `0x${string}`;
 
@@ -138,7 +139,12 @@ export async function sendSponsoredCallsAndGetTxHash(params: {
         version: '1.0',
         chainId: chainIdHex,
         from,
-        calls: calls.map((c) => ({ ...c, value: c.value ?? '0x0' })),
+        calls: calls.map((c) => ({
+          ...c,
+          // Append ERC-8021 attribution suffix (Base Builder Codes) to every call.
+          data: appendBuilderCodesSuffix(c.data),
+          value: c.value ?? '0x0',
+        })),
         capabilities: {
           paymasterService: {
             url: paymasterServiceUrl,
