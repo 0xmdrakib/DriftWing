@@ -28,6 +28,7 @@
   --ease: cubic-bezier(.2,.8,.2,1);
 
   color-scheme: dark;
+  --app-height: 100vh;
 }
 
 
@@ -322,14 +323,21 @@ html, body { background-attachment: fixed; }
 
 /* DriftWing mobile-first UI */
 .wrap{
+  /* Fallbacks for WebViews that don't support dvh/svh reliably */
+  min-height: 100vh;
+  height: 100vh;
   min-height: 100dvh;
   height: 100dvh;
+  min-height: var(--app-height);
+  height: var(--app-height);
   padding: 0;
   display: block;
 }
 
 .dw{
+  height: 100vh;
   height: 100dvh;
+  height: var(--app-height);
   width: 100%;
   display: flex;
   flex-direction: column;
