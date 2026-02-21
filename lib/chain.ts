@@ -13,6 +13,7 @@ import {
   sendSponsoredCallsAndGetTxHash,
   supportsPaymaster,
 } from "./gasless";
+import { appendBuilderCodesSuffix } from "./builderCodes";
 
 const RPC_URL = process.env.NEXT_PUBLIC_BASE_RPC_URL || "https://mainnet.base.org";
 const SCOREBOARD_ADDRESS = process.env.NEXT_PUBLIC_SCOREBOARD_ADDRESS as `0x${string}` | undefined;
@@ -96,11 +97,10 @@ export async function submitScore(score: number) {
   // Fallback: normal writeContract (works in Farcaster, and in any wallet without paymaster).
   const wallet = await getWalletClient();
   if (!wallet) throw new Error("No wallet provider found");
-  const hash = await wallet.writeContract({
-    address: SCOREBOARD_ADDRESS,
-    abi: scoreboardAbi,
-    functionName: "submitScore",
-    args: [BigInt(score)],
+  const hash = await wallet.sendTransaction({
+    to: SCOREBOARD_ADDRESS,
+    data: appendBuilderCodesSuffix(data),
+    value: 0n,
     account: from,
   });
 
