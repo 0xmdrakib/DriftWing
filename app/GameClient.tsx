@@ -526,8 +526,17 @@ export default function GameClient() {
     };
 
     resize();
-    const ro = new ResizeObserver(resize);
-    ro.observe(canvas);
+
+    // ResizeObserver is great when available, but some in-app WebViews are missing it
+    // or don't reliably fire it on orientation changes. So we add window fallbacks.
+    let ro: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== "undefined") {
+      ro = new ResizeObserver(resize);
+      ro.observe(canvas);
+    }
+
+    window.addEventListener("resize", resize);
+    window.addEventListener("orientationchange", resize);
 
     const pointerToX = (e: PointerEvent) => {
       const rect = canvas.getBoundingClientRect();
@@ -1023,6 +1032,8 @@ export default function GameClient() {
     return () => {
       cancelAnimationFrame(raf);
       ro?.disconnect();
+      window.removeEventListener("resize", resize);
+      window.removeEventListener("orientationchange", resize);
       canvas.removeEventListener("pointerdown", onDown);
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
