@@ -22,7 +22,7 @@ export default function FirstRunPrompt() {
       <div className="w-full max-w-md rounded-2xl bg-[#0f1012] p-5 shadow-xl">
         <h3 className="text-white text-lg font-semibold mb-2">Add DriftWing</h3>
         <p className="text-white/70 text-sm mb-4">
-          Add this mini app and enable notifications to get reminders and score updates.
+          Add this mini app to jump back in faster and keep your score runs close at hand.
         </p>
 
         <div className="space-y-2">
