@@ -1,4 +1,4 @@
-Just lunched my New 8th Mini App: Drift Wing ✈️  
+Just lunched my new Mini App: Drift Wing ✈️  
 A tiny arcade shooter built as a https://x.com/base + https://x.com/farcaster_xyz Mini App.
 
 ✅ Drag left/right to move, Auto-fire, Survive.
