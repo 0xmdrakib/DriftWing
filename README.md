@@ -5,4 +5,4 @@ A tiny arcade shooter built as a https://x.com/base Mini App & web app.
 ✅ Save your score in onchain, play game and use Base chain. 
 ✅ Weekly Top 100 leaderboard (auto reset each week)
 
-Play inside base or web: https://driftwing.vercel.app
+Play inside base app or web: https://driftwing.vercel.app
