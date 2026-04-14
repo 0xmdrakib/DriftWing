@@ -13,6 +13,7 @@ import {
   upsertWeeklyBest,
   weekWindowFromId,
 } from "@/lib/leaderboard";
+import { autoSyncIfDue } from "@/lib/server/syncLeaderboard";
 
 export const runtime = "nodejs";
 
@@ -57,6 +58,10 @@ function rankInTop(top: Array<{ address: string }>, account: string) {
 
 export async function GET(req: Request) {
   try {
+    // Auto-sync: every 3 minutes, scan recent blocks for ScoreSubmitted events.
+    // Catches scores submitted directly to the contract (outside this app's frontend).
+    await autoSyncIfDue();
+
     const url = new URL(req.url);
     const nowMs = Date.now();
     const nowWeek = currentWeekId(nowMs);
