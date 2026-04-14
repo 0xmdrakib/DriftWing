@@ -39,7 +39,6 @@ export async function GET(req: NextRequest) {
   await rolloverIfNeeded(currentWeekId(Date.now()));
 
   return NextResponse.json({
-    ok: true,
     ...result,
   });
 }
