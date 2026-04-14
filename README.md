@@ -1,5 +1,5 @@
 Just lunched my new Mini App: Drift Wing ✈️  
-A tiny arcade shooter built as a https://x.com/base + https://x.com/farcaster_xyz Mini App.
+A tiny arcade shooter built as a https://x.com/base Mini App & web app.
 
 ✅ Drag left/right to move, Auto-fire, Survive.
 ✅ Save your score in onchain, play game and use Base chain. 
