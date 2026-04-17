@@ -50,6 +50,8 @@ body {
   width: 100%;
   height: 100%;
   image-rendering: pixelated;
+  transform: translateZ(0);
+  backface-visibility: hidden;
 }
 
 /* Top UI Overlay */
@@ -76,7 +78,7 @@ body {
   background: var(--pop-white);
   border: var(--thick-border);
   border-radius: 255px 15px 225px 15px / 15px 225px 15px 255px; /* Wonky box */
-  padding: 8px 16px;
+  padding: 6px 12px;
   box-shadow: var(--marker-shadow);
   display: flex;
   flex-direction: column;
@@ -85,14 +87,14 @@ body {
 }
 
 .dwStat span {
-  font-size: 0.85rem;
+  font-size: 0.75rem;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 1px;
 }
 
 .dwStat b {
-  font-size: 1.4rem;
+  font-size: 1.2rem;
   font-weight: 900;
 }
 
@@ -110,9 +112,9 @@ body {
   color: var(--text-main);
   border: var(--thick-border);
   border-radius: 15px 225px 15px 255px / 255px 15px 225px 15px; /* Quirky shape */
-  padding: 10px 18px;
+  padding: 8px 14px;
   font-family: inherit;
-  font-size: 1rem;
+  font-size: 0.9rem;
   font-weight: 700;
   cursor: pointer;
   box-shadow: var(--marker-shadow);
@@ -135,7 +137,7 @@ body {
 
 .dwDiffSelect {
   background: var(--pop-cyan);
-  padding: 8px 12px;
+  padding: 6px 10px;
   box-shadow: 4px 4px 0px #000;
 }
 
@@ -217,7 +219,7 @@ body {
 .dwOverlayTop {
   z-index: 1000;
   align-items: flex-start;
-  padding-top: 60px;
+  padding-top: 85px;
 }
 
 .dwModal {
@@ -437,7 +439,7 @@ body {
   background: var(--pop-white) !important;
   border: var(--thick-border) !important;
   border-radius: 15px 225px 15px 255px / 255px 15px 225px 15px !important;
-  padding: 8px 14px !important;
+  padding: 6px 12px !important;
   transform: rotate(1deg);
   box-shadow: 4px 4px 0px #000;
   cursor: pointer;
