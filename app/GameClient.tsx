@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { loadEngine, type GameEngineInstance } from "@/lib/wasmLoader";
 import { sdk } from "@farcaster/miniapp-sdk";
 import { hasScoreboard, readBestScore, submitScore, waitForReceipt } from "@/lib/chain";
 import {
@@ -13,42 +14,9 @@ import {
 
 type Phase = "menu" | "play" | "over";
 type Difficulty = "easy" | "medium" | "hard";
-type EnemyType = "scout" | "zigzag" | "tank" | "boss";
-
-type Enemy = {
-  id: number;
-  t: EnemyType;
-  x: number;
-  y: number;
-  vx: number;
-  vy: number;
-  r: number;
-  hp: number;
-  maxHp: number;
-};
-
-type Bullet = {
-  id: number;
-  x: number;
-  y: number;
-  vx: number;
-  vy: number;
-};
 
 function clamp(n: number, a: number, b: number) {
   return Math.max(a, Math.min(b, n));
-}
-
-// Smooth 0..1 easing to avoid "sudden" difficulty spikes.
-function smoothstep01(x: number) {
-  const t = clamp(x, 0, 1);
-  return t * t * (3 - 2 * t);
-}
-
-function dist2(ax: number, ay: number, bx: number, by: number) {
-  const dx = ax - bx;
-  const dy = ay - by;
-  return dx * dx + dy * dy;
 }
 
 // Canvas round-rect helper (webview-safe)
@@ -70,68 +38,11 @@ function roundRectPath(
   ctx.closePath();
 }
 
-const DIFF: Record<
-  Difficulty,
-  {
-    label: string;
-    // How long the difficulty ramps up (ms). Easy ramps slower; hard ramps faster.
-    rampMs: number;
-    // spawn pacing
-    spawnBaseMs: number;
-    spawnMinFactor: number; // ramps down to base*factor
-    // speed multiplier
-    speedMul: number;
-    // hp multiplier for non-boss
-    hpMul: number;
-    // player fire interval
-    fireIntervalMs: number;
-    // boss
-    bossEveryMs: number;
-    bossHp: number;
-    bossDamageMul: number; // bullets do extra damage vs boss
-  }
-> = {
-  easy: {
-    label: "Easy",
-    rampMs: 140_000,
-    // fewer spawns, slower ramp
-    spawnBaseMs: 1400,
-    spawnMinFactor: 0.86,
-    // slower enemies
-    speedMul: 0.80,
-    // less HP (more forgiving)
-    hpMul: 0.85,
-    // faster fire
-    fireIntervalMs: 78,
-    // boss appears later and is weaker
-    bossEveryMs: 70_000,
-    bossHp: 6,
-    bossDamageMul: 1.2,
-  },
-  medium: {
-    label: "Medium",
-    rampMs: 115_000,
-    spawnBaseMs: 1150,
-    spawnMinFactor: 0.78,
-    speedMul: 0.92,
-    hpMul: 0.98,
-    fireIntervalMs: 86,
-    bossEveryMs: 62_000,
-    bossHp: 9,
-    bossDamageMul: 1.25,
-  },
-  hard: {
-    label: "Hard",
-    rampMs: 95_000,
-    spawnBaseMs: 980,
-    spawnMinFactor: 0.70,
-    speedMul: 1.0,
-    hpMul: 1.05,
-    fireIntervalMs: 96,
-    bossEveryMs: 55_000,
-    bossHp: 12,
-    bossDamageMul: 1.3,
-  },
+// Difficulty config — game-logic values now live in Rust; only UI labels remain here.
+const DIFF: Record<Difficulty, { label: string }> = {
+  easy:   { label: "Easy" },
+  medium: { label: "Medium" },
+  hard:   { label: "Hard" },
 };
 
 export default function GameClient() {
@@ -148,6 +59,10 @@ export default function GameClient() {
   useEffect(() => {
     difficultyRef.current = difficulty;
   }, [difficulty]);
+
+  const [theme, setTheme] = useState<"glass" | "neon" | "scifi">("glass");
+  const themeRef = useRef(theme);
+  useEffect(() => { themeRef.current = theme; }, [theme]);
 
   const [scoreUi, setScoreUi] = useState(0);
   const [bestUi, setBestUi] = useState<number | null>(null);
@@ -290,37 +205,15 @@ export default function GameClient() {
     return () => window.removeEventListener("pointerdown", onPointerDown);
   }, []);
 
+  const engineRef = useRef<GameEngineInstance | null>(null);
+  // Lightweight TS-side ref for canvas dimensions, pointer tracking, and score (synced from WASM).
   const g = useRef({
     w: 0,
     h: 0,
     dpr: 1,
-
-    startAt: 0,
-    lastAt: 0,
-
-    // player
-    px: 0,
-    py: 0,
     tx: 0,
     dragging: false,
-
-    // entities
-    enemies: [] as Enemy[],
-    bullets: [] as Bullet[],
-
-    // pacing
-    nextSpawnAt: 0,
-    nextBossAt: 0,
-    lastShotAt: 0,
-
-    // score
     score: 0,
-
-    // boosts
-    overdriveUntil: 0,
-
-    // ids
-    id: 1,
   });
 
   function setPhaseSafe(p: Phase) {
@@ -341,6 +234,12 @@ export default function GameClient() {
       const b = await readBestScore(a);
       if (typeof b === "number") setBestUi(b);
     }
+  }
+
+  function disconnect() {
+    setAccount(null);
+    setStatus("");
+    try { setPreferredInjectedWalletId(null); } catch(e) {}
   }
 
   async function connect() {
@@ -467,16 +366,10 @@ export default function GameClient() {
     }
   }
 
-  function resetCore() {
-    const gg = g.current;
-    gg.enemies = [];
-    gg.bullets = [];
-    gg.id = 1;
-    gg.score = 0;
-    gg.overdriveUntil = 0;
-    gg.nextSpawnAt = performance.now() + 450;
-    gg.nextBossAt = performance.now() + DIFF[difficultyRef.current].bossEveryMs;
-    gg.lastShotAt = 0;
+  function resetCore(targetPhase: Phase) {
+    if (engineRef.current) {
+      engineRef.current.reset(targetPhase, difficultyRef.current, performance.now());
+    }
     saveLockRef.current = false;
     setSavedThisRun(false);
     setLbOpen(false);
@@ -485,7 +378,7 @@ export default function GameClient() {
   }
 
   function restart(into: Phase) {
-    resetCore();
+    resetCore(into);
     setPhaseSafe(into);
   }
 
@@ -519,13 +412,33 @@ export default function GameClient() {
       gg.h = Math.max(1, Math.floor(rect.height * gg.dpr));
       canvas.width = gg.w;
       canvas.height = gg.h;
-
-      gg.py = Math.floor(gg.h * 0.86);
-      gg.px = Math.floor(gg.w * 0.5);
-      gg.tx = gg.px;
+      gg.tx = Math.floor(gg.w * 0.5);
+      if (engineRef.current) {
+        try {
+          engineRef.current.resize(gg.w, gg.h, gg.dpr);
+        } catch (e) {
+          console.warn("WASM Resize Error:", e);
+        }
+      }
     };
 
     resize();
+
+    // Load WASM engine asynchronously, then do initial resize + start loop.
+    let cancelled = false;
+    loadEngine().then(({ GameEngine }) => {
+      if (cancelled) return;
+      if (!engineRef.current) {
+        try {
+          engineRef.current = new GameEngine();
+          engineRef.current.reset(phaseRef.current, difficultyRef.current, performance.now());
+          engineRef.current.resize(gg.w, gg.h, gg.dpr);
+        } catch (e) {
+          console.error("WASM Init Error:", e);
+          engineRef.current = null;
+        }
+      }
+    });
 
     // ResizeObserver is great when available, but some in-app WebViews are missing it
     // or don't reliably fire it on orientation changes. So we add window fallbacks.
@@ -562,19 +475,18 @@ export default function GameClient() {
     window.addEventListener("pointerup", onUp);
 
     // Rendering helpers
-    const drawStars = (ctx: CanvasRenderingContext2D, t: number) => {
+    const drawStars = (ctx: CanvasRenderingContext2D, t: number, starColor: string) => {
       ctx.save();
-      ctx.globalAlpha = 0.35;
+      ctx.fillStyle = starColor;
       for (let i = 0; i < 30; i++) {
         const x = (((i * 97) % 1013) / 1013) * gg.w;
         const y = (((i * 173 + t * 0.03) % 997) / 997) * gg.h;
-        ctx.fillStyle = "rgba(234,240,255,.65)";
-        ctx.fillRect(x, y, 1.2 * gg.dpr, 1.2 * gg.dpr);
+        // Draw tiny random marker dots / pluses
+        ctx.fillRect(x, y, 4 * gg.dpr, 4 * gg.dpr);
       }
       ctx.restore();
     };
 
-    // Plane silhouette drawn pointing UP (nose up). Rotate by PI for down-facing.
     const drawPlane = (
       ctx: CanvasRenderingContext2D,
       x: number,
@@ -591,18 +503,11 @@ export default function GameClient() {
       ctx.rotate((facingDown ? Math.PI : 0) + tilt);
       ctx.scale(scale, scale);
 
-      // Soft shadow so the jet pops on dark backgrounds
-      ctx.shadowColor = "rgba(0,0,0,0.35)";
-      ctx.shadowBlur = 10;
-      ctx.shadowOffsetY = 4;
-
-      // Jet silhouette (classic top-down plane icon)
-      const g = ctx.createLinearGradient(0, -30, 0, 26);
-      g.addColorStop(0, fill);
-      g.addColorStop(1, "rgba(255,255,255,0.08)");
-      ctx.fillStyle = g;
+      // Jet silhouette (Doodle Style)
+      ctx.fillStyle = fill;
       ctx.strokeStyle = outline;
-      ctx.lineWidth = 2;
+      ctx.lineWidth = 3;
+      ctx.lineJoin = "round";
 
       ctx.beginPath();
       ctx.moveTo(0, -30);
@@ -625,194 +530,56 @@ export default function GameClient() {
       ctx.fill();
       ctx.stroke();
 
-      // Cockpit (simple glossy oval)
-      ctx.shadowBlur = 0;
-      ctx.fillStyle = "rgba(0,0,0,0.35)";
+      // Fun little cockpit
+      ctx.fillStyle = "#FFF";
       ctx.beginPath();
-      ctx.ellipse(0, -13, 4.2, 8.5, 0, 0, Math.PI * 2);
+      ctx.ellipse(0, -13, 5, 8, 0, 0, Math.PI * 2);
       ctx.fill();
-      ctx.strokeStyle = "rgba(255,255,255,0.12)";
-      ctx.lineWidth = 1;
       ctx.stroke();
 
-      // Thruster (only for player + boss to feel alive)
+      // Thruster doodle
       if (flame) {
-        ctx.globalCompositeOperation = "screen";
-        ctx.fillStyle = "rgba(80, 255, 214, 0.20)";
+        ctx.fillStyle = "#FFE600";
         ctx.beginPath();
-        ctx.ellipse(0, 22, 7.5, 5.2, 0, 0, Math.PI * 2);
+        ctx.ellipse(0, 25, 6, 8, 0, 0, Math.PI * 2);
         ctx.fill();
-        ctx.fillStyle = "rgba(255,255,255,0.16)";
-        ctx.beginPath();
-        ctx.ellipse(0, 18, 5.5, 3.2, 0, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.globalCompositeOperation = "source-over";
+        ctx.stroke();
       }
 
       ctx.restore();
     };
-    const drawBullet = (ctx: CanvasRenderingContext2D, b: Bullet) => {
+
+    const drawBullet = (ctx: CanvasRenderingContext2D, b: { x: number; y: number }) => {
       ctx.save();
       ctx.translate(b.x, b.y);
 
-      // Speed lines (behind the missile)
-      ctx.strokeStyle = "rgba(255,255,255,0.28)";
-      ctx.lineWidth = 2;
-      ctx.lineCap = "round";
+      // Simple fat bullet doodle
+      ctx.fillStyle = "#FFF";
+      ctx.strokeStyle = "#000";
+      ctx.lineWidth = 3;
+
       ctx.beginPath();
-      ctx.moveTo(-6, 10); ctx.lineTo(-6, 18);
-      ctx.moveTo(0, 12); ctx.lineTo(0, 22);
-      ctx.moveTo(6, 10); ctx.lineTo(6, 18);
-      ctx.stroke();
-
-      // Missile body
-      ctx.shadowColor = "rgba(0,0,0,0.25)";
-      ctx.shadowBlur = 6;
-      ctx.shadowOffsetY = 2;
-      ctx.fillStyle = "rgba(255,255,255,0.92)";
-      ctx.strokeStyle = "rgba(0,0,0,0.22)";
-      ctx.lineWidth = 1;
-
-      // capsule-ish body
-      roundRectPath(ctx, -5, -14, 10, 24, 5);
+      ctx.ellipse(0, 0, 4, 12, 0, 0, Math.PI * 2);
       ctx.fill();
       ctx.stroke();
-
-      // nose highlight
-      ctx.shadowBlur = 0;
-      const hg = ctx.createLinearGradient(0, -14, 0, -2);
-      hg.addColorStop(0, "rgba(255,255,255,0.75)");
-      hg.addColorStop(1, "rgba(255,255,255,0.0)");
-      ctx.fillStyle = hg;
-      ctx.beginPath();
-      ctx.ellipse(0, -10, 3.2, 4.6, 0, 0, Math.PI * 2);
-      ctx.fill();
-
-      // tail fins
-      ctx.fillStyle = "rgba(255,255,255,0.85)";
-      ctx.beginPath();
-      ctx.moveTo(-5, 6); ctx.lineTo(-10, 12); ctx.lineTo(-5, 12); ctx.closePath();
-      ctx.moveTo(5, 6);  ctx.lineTo(10, 12);  ctx.lineTo(5, 12);  ctx.closePath();
-      ctx.fill();
-      ctx.strokeStyle = "rgba(0,0,0,0.18)";
-      ctx.stroke();
-
+      
       ctx.restore();
     };
 
-    const pickEnemyType = (r: number, diff: Difficulty): EnemyType => {
-      // Distribution tuned so Easy is truly forgiving and Hard is challenging but fair.
-      if (diff === "easy") {
-        if (r < 0.72) return "scout";
-        if (r < 0.95) return "zigzag";
-        return "tank";
-      }
-      if (diff === "medium") {
-        if (r < 0.62) return "scout";
-        if (r < 0.92) return "zigzag";
-        return "tank";
-      }
-      // hard
-      if (r < 0.55) return "scout";
-      if (r < 0.88) return "zigzag";
-      return "tank";
-    };
-
-    const spawnEnemy = (t: number) => {
-      const d = DIFF[difficultyRef.current];
-      const rampRaw = (t - gg.startAt) / d.rampMs;
-      const ramp = smoothstep01(rampRaw);
-      const spawnMs = d.spawnBaseMs * (1 - (1 - d.spawnMinFactor) * ramp);
-
-      gg.nextSpawnAt = t + spawnMs;
-
-      const et = pickEnemyType(Math.random(), difficultyRef.current);
-      const x = clamp(Math.random() * gg.w, 30 * gg.dpr, gg.w - 30 * gg.dpr);
-
-      let hp = 1;
-      let r = 14 * gg.dpr;
-      // Base speed + gentle ramp (smoothstep) to keep the game "smooth" and predictable.
-      let vy = (220 + 180 * ramp) * gg.dpr * d.speedMul;
-      let vx = 0;
-
-      if (et === "scout") {
-        hp = Math.max(1, Math.round(1 * d.hpMul));
-        r = 14 * gg.dpr;
-        vy *= 1.08;
-      } else if (et === "zigzag") {
-        hp = Math.max(1, Math.round(1 * d.hpMul));
-        r = 15 * gg.dpr;
-        vy *= 0.95;
-        vx = (Math.random() < 0.5 ? -1 : 1) * (120 + 100 * ramp) * gg.dpr * d.speedMul;
-      } else if (et === "tank") {
-        hp = Math.max(2, Math.round(2 * d.hpMul));
-        r = 17 * gg.dpr;
-        vy *= 0.80;
-      }
-
-      gg.enemies.push({
-        id: gg.id++,
-        t: et,
-        x,
-        y: -44 * gg.dpr,
-        vx,
-        vy,
-        r,
-        hp,
-        maxHp: hp,
-      });
-    };
-
-    const spawnBoss = (t: number) => {
-      const d = DIFF[difficultyRef.current];
-      gg.nextBossAt = t + d.bossEveryMs;
-
-      const hp = d.bossHp;
-      gg.enemies.push({
-        id: gg.id++,
-        t: "boss",
-        x: gg.w * 0.5,
-        y: -70 * gg.dpr,
-        vx: 0,
-        vy: 120 * gg.dpr * d.speedMul,
-        r: 36 * gg.dpr,
-        hp,
-        maxHp: hp,
-      });
-    };
-
-    const shoot = (t: number) => {
-      const d = DIFF[difficultyRef.current];
-      const overdrive = t < gg.overdriveUntil;
-      const interval = overdrive ? Math.max(66, d.fireIntervalMs - 26) : d.fireIntervalMs;
-
-      if (t - gg.lastShotAt < interval) return;
-      gg.lastShotAt = t;
-
-      const speed = -920 * gg.dpr;
-      const dual = overdrive; // Overdrive => double bullets
-      const spread = dual ? 10 * gg.dpr : 0;
-
-      gg.bullets.push({
-        id: gg.id++,
-        x: gg.px - spread,
-        y: gg.py - 26 * gg.dpr,
-        vx: 0,
-        vy: speed,
-      });
-      if (dual) {
-        gg.bullets.push({
-          id: gg.id++,
-          x: gg.px + spread,
-          y: gg.py - 26 * gg.dpr,
-          vx: 0,
-          vy: speed,
-        });
-      }
-    };
-
+    
     // UI throttle
     let lastUi = performance.now();
+
+    const getThemeColors = () => {
+      return {
+        stars: "#000",
+        bossFill: "#FF3B7C", bossStroke: "#000", bossHp: "#FF3B7C",
+        scoutFill: "#3BEFFF", scoutStroke: "#000",
+        zigzagFill: "#FF9B3B", zigzagStroke: "#000",
+        tankFill: "#9DFF3B", tankStroke: "#000",
+        playerFill: "#FFF", playerStroke: "#000",
+      };
+    };
 
     let raf = 0;
     const loop = (t: number) => {
@@ -820,216 +587,185 @@ export default function GameClient() {
       const ctx = canvas.getContext("2d");
       if (!ctx) return;
 
-      const dt = Math.min(0.033, (t - gg.lastAt) / 1000);
-      gg.lastAt = t;
-
-      // Update
-      if (phaseRef.current === "play") {
-        // smooth drift (a bit snappier on Easy, still smooth everywhere)
-        const follow = difficultyRef.current === "easy" ? 15 : difficultyRef.current === "medium" ? 14 : 13;
-        gg.px += (gg.tx - gg.px) * clamp(dt * follow, 0, 1);
-
-        // auto-fire always (no heat HUD)
-        shoot(t);
-
-        // spawn enemies
-        if (t >= gg.nextSpawnAt) spawnEnemy(t);
-
-        // boss spawn
-        const bossAlive = gg.enemies.some((e) => e.t === "boss");
-        if (!bossAlive && t >= gg.nextBossAt) spawnBoss(t);
-
-        // move bullets
-        for (const b of gg.bullets) {
-          b.x += b.vx * dt;
-          b.y += b.vy * dt;
-        }
-        gg.bullets = gg.bullets.filter((b) => b.y > -60 * gg.dpr);
-
-        // move enemies
-        for (const e of gg.enemies) {
-          if (e.t === "boss") {
-            const targetY = 120 * gg.dpr;
-            if (e.y < targetY) e.y += e.vy * dt;
-            else e.y += Math.sin(t * 0.002) * 9 * gg.dpr * dt;
-
-            // gentle side movement
-            e.x = gg.w * 0.5 + Math.sin(t * 0.0012) * (gg.w * 0.18);
-          } else {
-            e.y += e.vy * dt;
-            e.x += e.vx * dt;
-
-            if (e.t === "zigzag") {
-              if (e.x < 24 * gg.dpr || e.x > gg.w - 24 * gg.dpr) {
-                e.vx *= -1;
-                e.x = clamp(e.x, 24 * gg.dpr, gg.w - 24 * gg.dpr);
-              }
-            }
-          }
-        }
-
-        // If any enemy touches the bottom edge => game over.
-        for (const e of gg.enemies) {
-          if (e.y + e.r >= gg.h) {
-            endGame();
-            break;
-          }
-        }
-
+      if (!engineRef.current) return;
+      let state: any;
+      try {
         if (phaseRef.current === "play") {
-          // collisions: bullets -> enemies
-        const d = DIFF[difficultyRef.current];
-        const bulletAlive: Bullet[] = [];
-        for (const b of gg.bullets) {
-          let hit = false;
-          for (const e of gg.enemies) {
-            const rr = (e.t === "boss" ? 0.85 : 0.92) * e.r + 6 * gg.dpr;
-            if (dist2(b.x, b.y, e.x, e.y) <= rr * rr) {
-              hit = true;
-
-              // damage
-              const dmg = e.t === "boss" ? d.bossDamageMul : 1;
-              e.hp -= dmg;
-
-              if (e.hp <= 0) {
-                // kill reward
-                if (e.t === "boss") {
-                  gg.score += 520;
-                  gg.overdriveUntil = t + 6500; // reward boost
-                } else if (e.t === "tank") {
-                  gg.score += 35;
-                } else {
-                  gg.score += 20;
-                }
-              } else {
-                // small hit points
-                gg.score += e.t === "boss" ? 2 : 1;
-              }
-              break;
-            }
-          }
-          if (!hit) bulletAlive.push(b);
+          engineRef.current.set_target_x(gg.tx);
         }
-        gg.bullets = bulletAlive;
+        engineRef.current.update(t);
+        state = engineRef.current.get_state();
+      } catch (e) {
+        console.error("WASM Error:", e);
+        return;
+      }
+      
+      // sync internal score
+      gg.score = state.score;
 
-        // remove dead/out enemies
-        gg.enemies = gg.enemies.filter((e) => e.hp > 0 && e.y < gg.h + 100 * gg.dpr);
+      // Rust serde serializes unit enum variants as plain strings
+      if (state.phase === "Over" && phaseRef.current === "play") {
+         endGame();
+      }
 
-        // player collision -> game over
-        for (const e of gg.enemies) {
-          // More accurate hit feel (less "unfair"). We treat both as soft circles.
-          const playerHitR = 13 * gg.dpr;
-          const enemyHitR = e.t === "boss" ? e.r * 0.82 : e.r * 0.90;
-          const rr = enemyHitR + playerHitR;
-          if (dist2(gg.px, gg.py, e.x, e.y) <= rr * rr) {
-            endGame();
-            break;
-          }
-        }
-
+      ctx.clearRect(0, 0, gg.w, gg.h);
+      canvas.style.backgroundColor = `hsl(${54 - (Math.min(1, state.score / 5000) * 80)}, 87%, 73%)`;
+ctx.save();
+      const shakeAmt = state.shake || 0;
+      if (shakeAmt > 0) {
+        ctx.translate((Math.random() - 0.5) * shakeAmt, (Math.random() - 0.5) * shakeAmt);
+      }
+      
+      const tc = getThemeColors();
+      drawStars(ctx, t, tc.stars);
+      
+      // Powerups
+      if (state.powerups) {
+        ctx.lineWidth = 2.5;
+        ctx.strokeStyle = "#000";
+        for (const p of state.powerups) {
+            ctx.save();
+            ctx.translate(p.x, p.y);
+            const sz = 14 * gg.dpr;
+            
+            ctx.fillStyle = p.t === "Overdrive" ? "#3BEFFF" : "#9DFF3B";
+            
+            ctx.beginPath();
+            ctx.rect(-sz/2, -sz/2, sz, sz);
+            ctx.fill();
+            ctx.stroke();
+            
+            ctx.fillStyle = "#000";
+            ctx.font = "900 " + (10 * gg.dpr) + "px sans-serif";
+            ctx.textAlign = "center";
+            ctx.textBaseline = "middle";
+            ctx.fillText(p.t === "Overdrive" ? "O" : "M", 0, 2 * gg.dpr);
+            ctx.restore();
         }
       }
 
-      // Draw
-      ctx.clearRect(0, 0, gg.w, gg.h);
-
-      drawStars(ctx, t);
-
-      // subtle vignette
-      ctx.save();
-      ctx.globalAlpha = 0.20;
-      ctx.fillStyle = "rgba(0,0,0,1)";
-      ctx.beginPath();
-      ctx.ellipse(gg.w * 0.5, gg.h * 0.55, gg.w * 0.65, gg.h * 0.75, 0, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.restore();
+      // Particles (Comic explosions)
+      if (state.particles) {
+        ctx.lineWidth = 2.5;
+        ctx.strokeStyle = "#000";
+        for (const p of state.particles) {
+            const ratio = p.life / p.max_life;
+            const sz = ratio * 12 * gg.dpr;
+            ctx.fillStyle = Math.random() > 0.5 ? "#FF9B3B" : "#FF3B7C";
+            ctx.save();
+            ctx.translate(p.x, p.y);
+            ctx.rotate(p.life * 15);
+            ctx.beginPath();
+            ctx.moveTo(sz, 0);
+            ctx.lineTo(sz/3, sz/3);
+            ctx.lineTo(0, sz);
+            ctx.lineTo(-sz/3, sz/3);
+            ctx.lineTo(-sz, 0);
+            ctx.lineTo(-sz/3, -sz/3);
+            ctx.lineTo(0, -sz);
+            ctx.lineTo(sz/3, -sz/3);
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+            ctx.restore();
+        }
+      }
 
       // enemies
-      for (const e of gg.enemies) {
-        const tilt = e.t === "zigzag" ? Math.sin(t * 0.01) * 0.18 : 0;
+      for (const e of state.enemies) {
+        const isBoss = e.t === "Boss";
+        const isScout = e.t === "Scout";
+        const isZigzag = e.t === "Zigzag";
+        const isTank = e.t === "Tank";
 
-        if (e.t === "boss") {
-          drawPlane(
-            ctx,
-            e.x,
-            e.y,
-            1.35 * gg.dpr,
-            "rgba(255,92,122,.16)",
-            "rgba(255,92,122,.55)",
-            false,
-            tilt,
-            true
-          );
+        const tilt = isZigzag ? Math.sin(t * 0.01) * 0.18 : 0;
 
-          // boss HP bar
+        if (isBoss) {
+          drawPlane(ctx, e.x, e.y, 1.35 * gg.dpr, tc.bossFill, tc.bossStroke, false, tilt, true);
           const w = 150 * gg.dpr;
           const h = 10 * gg.dpr;
           const x = e.x - w / 2;
           const y = e.y - 60 * gg.dpr;
-
           ctx.save();
           ctx.globalAlpha = 0.9;
           ctx.fillStyle = "rgba(255,255,255,.10)";
           roundRectPath(ctx, x, y, w, h, 999);
           ctx.fill();
-
-          const frac = clamp(e.hp / e.maxHp, 0, 1);
-          ctx.fillStyle = "rgba(255,92,122,.85)";
+          const frac = Math.max(0, Math.min(1, e.hp / e.max_hp));
+          ctx.fillStyle = tc.bossHp;
           roundRectPath(ctx, x, y, w * frac, h, 999);
           ctx.fill();
-
           ctx.restore();
         } else {
-          let fill = "rgba(234,240,255,.10)";
-          let stroke = "rgba(234,240,255,.35)";
-          if (e.t === "scout") {
-            fill = "rgba(124,255,178,.10)";
-            stroke = "rgba(124,255,178,.55)";
-          } else if (e.t === "zigzag") {
-            fill = "rgba(255,209,102,.10)";
-            stroke = "rgba(255,209,102,.55)";
-          } else if (e.t === "tank") {
-            fill = "rgba(160,170,255,.10)";
-            stroke = "rgba(160,170,255,.55)";
+          let fill = tc.scoutFill;
+          let stroke = tc.scoutStroke;
+          if (isScout) {
+            fill = tc.scoutFill; stroke = tc.scoutStroke;
+          } else if (isZigzag) {
+            fill = tc.zigzagFill; stroke = tc.zigzagStroke;
+          } else if (isTank) {
+            fill = tc.tankFill; stroke = tc.tankStroke;
           }
-
           drawPlane(ctx, e.x, e.y, 1.05 * gg.dpr, fill, stroke, false, tilt, true);
         }
       }
 
       // bullets
-      for (const b of gg.bullets) drawBullet(ctx, b);
+      for (const b of state.bullets) {
+         drawBullet(ctx, b);
+      }
+
+      // Player Trail
+      (gg as any).trail = (gg as any).trail || [];
+      (gg as any).trail.push({x: state.px, y: state.py + 15 * gg.dpr});
+      if ((gg as any).trail.length > 15) (gg as any).trail.shift();
+      
+      ctx.save();
+      ctx.lineWidth = 2 * gg.dpr;
+      ctx.strokeStyle = "rgba(0,0,0,0.4)";
+      ctx.beginPath();
+      for (let i = 0; i < (gg as any).trail.length; i++) {
+          const pt = (gg as any).trail[i];
+          if (i === 0) ctx.moveTo(pt.x, pt.y);
+          else ctx.lineTo(pt.x, pt.y);
+      }
+      ctx.stroke();
+      ctx.restore();
 
       // player plane
-      const flame = phaseRef.current === "play";
-      const playerTilt = (gg.tx - gg.px) / (gg.w * 0.45);
+      const playerTilt = (gg.tx - state.px) / (gg.w * 0.45);
+      const clampTilt = Math.max(-0.22, Math.min(0.22, playerTilt));
       drawPlane(
         ctx,
-        gg.px,
-        gg.py,
+        state.px,
+        state.py,
         1.15 * gg.dpr,
-        "rgba(234,240,255,.92)",
-        "rgba(234,240,255,.50)",
-        flame,
-        clamp(playerTilt, -0.22, 0.22),
+        tc.playerFill,
+        tc.playerStroke,
+        state.flame,
+        clampTilt,
         false
       );
+      
+      // Ally Drones
+      if (state.drones) {
+         drawPlane(ctx, state.px - 36 * gg.dpr, state.py + 10 * gg.dpr, 0.6 * gg.dpr, "#9DFF3B", "#000", state.flame, clampTilt, false);
+         drawPlane(ctx, state.px + 36 * gg.dpr, state.py + 10 * gg.dpr, 0.6 * gg.dpr, "#9DFF3B", "#000", state.flame, clampTilt, false);
+      }
+      
 
-      // update UI
+      ctx.restore(); // Ensure we restore translation for shake
+      
       if (t - lastUi >= 90) {
         lastUi = t;
-        setScoreUi(Math.floor(gg.score));
+        setScoreUi(Math.floor(state.score));
       }
     };
-
-    gg.startAt = performance.now();
-    gg.lastAt = gg.startAt;
-    gg.nextSpawnAt = gg.startAt + 500;
-    gg.nextBossAt = gg.startAt + DIFF[difficultyRef.current].bossEveryMs;
 
     raf = requestAnimationFrame(loop);
 
     return () => {
+      cancelled = true;
       cancelAnimationFrame(raf);
       ro?.disconnect();
       window.removeEventListener("resize", resize);
@@ -1038,8 +774,6 @@ export default function GameClient() {
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
     };
-    // We intentionally exclude `difficulty` from deps: we update pacing on restart.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [canChain, account]);
 
   // Apply difficulty changes immediately by restarting if currently playing/menu.
@@ -1073,7 +807,7 @@ export default function GameClient() {
   const acctShort = account ? `${account.slice(0, 6)}…${account.slice(-4)}` : "";
 
   return (
-    <div className="dw">
+    <div className="dw" data-theme={theme}>
       <div className="dwTop">
         <div className="dwLeft">
           <div className="dwStat">
@@ -1084,12 +818,16 @@ export default function GameClient() {
             <span>Best</span>
             <b>{topBestText}</b>
           </div>
+          
+        </div>
+        
+        <div className="dwRight">
           {/* Difficulty (dropdown) */}
           <div className="dwDiffMenu" ref={diffWrapRef}>
             <button
               className="dwBtn dwDiffSelect"
               type="button"
-              onClick={() => setDiffOpen((v) => !v)}
+              onClick={(e) => { e.stopPropagation(); setDiffOpen((v) => !v); }}
               aria-haspopup="menu"
               aria-expanded={diffOpen}
               aria-label="Select difficulty"
@@ -1131,19 +869,40 @@ export default function GameClient() {
 </div>
 
         <div className="dwRight">
-<button className="dwBtn dwPrimary" onClick={account ? () => {} : connect} type="button">
-            {account ? acctShort : "Connect"}
-          </button>
+{account ? (
+            <button
+              className="dwAccountPill"
+              onClick={(e) => { e.stopPropagation(); disconnect(); }}
+              type="button"
+              title="Disconnect"
+            >
+              <div style={{ width: 12, height: 12, borderRadius: "50%", background: "#4ade80", border: '2px solid #000' }} />
+              <span style={{ fontSize: "1.1rem" }}>{account.slice(0, 6)}...{account.slice(-4)}</span>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ marginLeft: 2 }}><path d="M18.36 6.64a9 9 0 1 1-12.73 0"></path><line x1="12" y1="2" x2="12" y2="12"></line></svg>
+            </button>
+          ) : (
+            <button className="dwBtn dwPrimary" onClick={(e) => { e.stopPropagation(); connect(); }} type="button">
+              Connect
+            </button>
+          )}
         </div>
       </div>
 
       <div className="dwStage">
-        <canvas ref={canvasRef} className="dwCanvas" />
+        <canvas ref={canvasRef} className="dwCanvas" style={{ touchAction: 'none' }} />
 
-        {phase !== "play" && (
+        {phase === "menu" && (
+          <div className="dwOverlay dwTapToStart" style={{ background: "transparent", cursor: "pointer" }} onClick={start}>
+             <div style={{ textAlign: "center", pointerEvents: "none" }}>
+                <div style={{ fontSize: "2.5rem", fontWeight: 900, color: "#FFF", textShadow: "-2px -2px 0 #000, 2px -2px 0 #000, -2px 2px 0 #000, 2px 2px 0 #000", letterSpacing: "2px" }}>TAP TO START</div>
+             </div>
+          </div>
+        )}
+
+        {phase === "over" && (
           <div className="dwOverlay">
             <div className="dwModal">
-              <div className="dwModalTitle">{phase === "menu" ? "DriftWing" : "Game Over"}</div>
+              <div className="dwModalTitle">Game Over</div>
               <div className="dwModalScore">
                 <div>
                   <span>Score</span>
@@ -1157,7 +916,7 @@ export default function GameClient() {
 
               <div className="dwRow">
                 <button className="dwBtn dwPrimary" onClick={start} type="button">
-                  {phase === "menu" ? "Start" : "Play again"}
+                  Play again
                 </button>
                 <button className="dwBtn" onClick={shareScore} type="button">
                   Share
@@ -1342,9 +1101,6 @@ export default function GameClient() {
         )}
 
         <div className="dwBottom">
-          <div className="dwHow">
-            Drag left/right to move • Auto-fire • Destroy the big plane for bonus and dual fire for few secend.
-          </div>
           <div className="dwStatus">
             {saving ? "Saving…" : status}
           </div>
