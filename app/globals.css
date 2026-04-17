@@ -15,7 +15,11 @@
   --pop-orange: #FF9B3B;
 }
 
-body {
+html, body {
+  position: fixed;
+  overflow: hidden;
+  width: 100%;
+  height: 100%;
   margin: 0;
   padding: 0;
   background: var(--app-bg);
@@ -23,6 +27,7 @@ body {
   overscroll-behavior: none;
   user-select: none;
   font-family: inherit; /* Balsamiq Sans from Next.js */
+  touch-action: none;
 }
 
 /* Base App Layout */
