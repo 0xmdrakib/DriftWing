@@ -45,6 +45,50 @@ const DIFF: Record<Difficulty, { label: string }> = {
   hard:   { label: "Hard" },
 };
 
+// Simple audio synth for retro game feel (0 dependencies, works everywhere)
+let audioCtx: AudioContext | null = null;
+function playSound(type: "boom" | "powerup" | "start") {
+  try {
+    if (!audioCtx) {
+      audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+    }
+    if (audioCtx.state === "suspended") audioCtx.resume();
+    
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    
+    const now = audioCtx.currentTime;
+    if (type === "boom") {
+      osc.type = "sawtooth";
+      osc.frequency.setValueAtTime(120, now);
+      osc.frequency.exponentialRampToValueAtTime(10, now + 0.3);
+      gain.gain.setValueAtTime(0.3, now);
+      gain.gain.exponentialRampToValueAtTime(0.01, now + 0.3);
+      osc.start(now);
+      osc.stop(now + 0.3);
+    } else if (type === "powerup") {
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(400, now);
+      osc.frequency.setValueAtTime(800, now + 0.1);
+      osc.frequency.setValueAtTime(1600, now + 0.2);
+      gain.gain.setValueAtTime(0.4, now);
+      gain.gain.linearRampToValueAtTime(0, now + 0.4);
+      osc.start(now);
+      osc.stop(now + 0.4);
+    } else if (type === "start") {
+      osc.type = "square";
+      osc.frequency.setValueAtTime(220, now);
+      osc.frequency.setValueAtTime(440, now + 0.1);
+      gain.gain.setValueAtTime(0.2, now);
+      gain.gain.linearRampToValueAtTime(0, now + 0.2);
+      osc.start(now);
+      osc.stop(now + 0.2);
+    }
+  } catch (e) { /* silent fail */ }
+}
+
 export default function GameClient() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
@@ -384,11 +428,13 @@ export default function GameClient() {
 
   function start() {
     setLbOpen(false);
+    playSound("start");
     restart("play");
   }
 
   function endGame() {
     if (phaseRef.current !== "play") return;
+    playSound("boom");
     setPhaseSafe("over");
 
     // Manual onchain save: user chooses when to save (avoids forced tx prompts).
@@ -408,16 +454,20 @@ export default function GameClient() {
     const resize = () => {
       const rect = canvas.getBoundingClientRect();
       gg.dpr = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
-      gg.w = Math.max(1, Math.floor(rect.width * gg.dpr));
-      gg.h = Math.max(1, Math.floor(rect.height * gg.dpr));
-      canvas.width = gg.w;
-      canvas.height = gg.h;
-      gg.tx = Math.floor(gg.w * 0.5);
-      if (engineRef.current) {
-        try {
-          engineRef.current.resize(gg.w, gg.h, gg.dpr);
-        } catch (e) {
-          console.warn("WASM Resize Error:", e);
+      const nextW = Math.max(1, Math.floor(rect.width * gg.dpr));
+      const nextH = Math.max(1, Math.floor(rect.height * gg.dpr));
+      if (canvas.width !== nextW || canvas.height !== nextH) {
+        gg.w = nextW;
+        gg.h = nextH;
+        canvas.width = gg.w;
+        canvas.height = gg.h;
+        gg.tx = Math.floor(gg.w * 0.5);
+        if (engineRef.current) {
+          try {
+            engineRef.current.resize(gg.w, gg.h, gg.dpr);
+          } catch (e) {
+            console.warn("WASM Resize Error:", e);
+          }
         }
       }
     };
@@ -598,6 +648,17 @@ export default function GameClient() {
       } catch (e) {
         console.error("WASM Error:", e);
         return;
+      }
+      
+      // detect events via score diff
+      const scoreDiff = state.score - (gg.score || 0);
+      if (scoreDiff >= 20 && scoreDiff < 500) {
+        playSound("boom");
+      } else if (scoreDiff >= 500) {
+        playSound("powerup"); // boss kill
+        setTimeout(() => playSound("boom"), 150);
+      } else if (scoreDiff === 50) {
+        playSound("powerup");
       }
       
       // sync internal score
