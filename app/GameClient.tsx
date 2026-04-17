@@ -255,7 +255,7 @@ export default function GameClient() {
       if (!inMiniApp) {
         const wallets = await listInjectedWallets();
         const hasChoice = Boolean(getPreferredInjectedWalletId());
-        if (wallets.length > 1 && !hasChoice) {
+        if (wallets.length > 0 && !hasChoice) {
           setInjectedWalletOptions(wallets);
           setWalletPickerOpen(true);
           return;
@@ -813,10 +813,6 @@ ctx.save();
           <div className="dwStat">
             <span>Score</span>
             <b>{scoreUi}</b>
-          </div>
-          <div className="dwStat">
-            <span>Best</span>
-            <b>{topBestText}</b>
           </div>
           
         </div>
