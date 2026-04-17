@@ -47,7 +47,7 @@ const DIFF: Record<Difficulty, { label: string }> = {
 
 // Simple audio synth for retro game feel (0 dependencies, works everywhere)
 let audioCtx: AudioContext | null = null;
-function playSound(type: "boom" | "powerup" | "start") {
+function playSound(type: "pop" | "powerup" | "start") {
   try {
     if (!audioCtx) {
       audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
@@ -55,48 +55,34 @@ function playSound(type: "boom" | "powerup" | "start") {
     if (audioCtx.state === "suspended") audioCtx.resume();
     const now = audioCtx.currentTime;
 
-    if (type === "boom") {
-      // 8-bit noise explosion (no bass rumble, no vibration)
-      const bufferSize = audioCtx.sampleRate * 0.25;
-      const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
-      const data = buffer.getChannelData(0);
-      for (let i = 0; i < bufferSize; i++) {
-        data[i] = Math.random() * 2 - 1; // white noise
-      }
-      const noise = audioCtx.createBufferSource();
-      noise.buffer = buffer;
-      
-      const filter = audioCtx.createBiquadFilter();
-      filter.type = "lowpass";
-      filter.frequency.setValueAtTime(1200, now);
-      filter.frequency.exponentialRampToValueAtTime(300, now + 0.2);
-      
-      const gain = audioCtx.createGain();
-      gain.gain.setValueAtTime(0.4, now);
-      gain.gain.exponentialRampToValueAtTime(0.01, now + 0.25);
-      
-      noise.connect(filter);
-      filter.connect(gain);
-      gain.connect(audioCtx.destination);
-      noise.start(now);
-    } else if (type === "powerup") {
-      // Crystal clear major arpeggio
+    if (type === "pop") {
+      // Soft retro "pop" or minor hit sound (no harsh static)
       const osc = audioCtx.createOscillator();
       const gain = audioCtx.createGain();
       osc.connect(gain);
       gain.connect(audioCtx.destination);
       osc.type = "square";
-      osc.frequency.setValueAtTime(523.25, now); // C5
-      osc.frequency.setValueAtTime(659.25, now + 0.08); // E5
-      osc.frequency.setValueAtTime(783.99, now + 0.16); // G5
-      osc.frequency.setValueAtTime(1046.50, now + 0.24); // C6
-      gain.gain.setValueAtTime(0.15, now);
-      gain.gain.setValueAtTime(0.15, now + 0.24);
-      gain.gain.linearRampToValueAtTime(0, now + 0.35);
+      osc.frequency.setValueAtTime(150, now);
+      osc.frequency.exponentialRampToValueAtTime(40, now + 0.1);
+      gain.gain.setValueAtTime(0.08, now); // low volume
+      gain.gain.exponentialRampToValueAtTime(0.01, now + 0.1);
       osc.start(now);
-      osc.stop(now + 0.35);
+      osc.stop(now + 0.1);
+    } else if (type === "powerup") {
+      // Magical rising glissando (very smooth and unobtrusive)
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(600, now);
+      osc.frequency.exponentialRampToValueAtTime(1200, now + 0.15);
+      gain.gain.setValueAtTime(0.15, now);
+      gain.gain.linearRampToValueAtTime(0, now + 0.15);
+      osc.start(now);
+      osc.stop(now + 0.15);
     } else if (type === "start") {
-      // Crisp start chime
+      // Crisp start chime (kept the same as user liked it)
       const osc = audioCtx.createOscillator();
       const gain = audioCtx.createGain();
       osc.connect(gain);
@@ -457,7 +443,7 @@ export default function GameClient() {
 
   function endGame() {
     if (phaseRef.current !== "play") return;
-    playSound("boom");
+    playSound("pop");
     setPhaseSafe("over");
 
     // Manual onchain save: user chooses when to save (avoids forced tx prompts).
@@ -676,10 +662,10 @@ export default function GameClient() {
       // detect events via score diff
       const scoreDiff = state.score - (gg.score || 0);
       if (scoreDiff >= 20 && scoreDiff < 500) {
-        playSound("boom");
+        playSound("pop");
       } else if (scoreDiff >= 500) {
         playSound("powerup"); // boss kill
-        setTimeout(() => playSound("boom"), 150);
+        setTimeout(() => playSound("pop"), 150);
       } else if (scoreDiff === 50) {
         playSound("powerup");
       }
