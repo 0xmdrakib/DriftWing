@@ -83,6 +83,9 @@ export const viewport: Viewport = {
   themeColor: "#0b0f14",
 };
 
+import { Balsamiq_Sans } from "next/font/google";
+const balsamiq = Balsamiq_Sans({ weight: ["400", "700"], subsets: ["latin"] });
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -90,7 +93,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body>
+      <body className={balsamiq.className}>
         <ClientReady />
         {children}
       </body>
