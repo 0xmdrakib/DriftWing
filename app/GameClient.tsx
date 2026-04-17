@@ -53,38 +53,61 @@ function playSound(type: "boom" | "powerup" | "start") {
       audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
     }
     if (audioCtx.state === "suspended") audioCtx.resume();
-    
-    const osc = audioCtx.createOscillator();
-    const gain = audioCtx.createGain();
-    osc.connect(gain);
-    gain.connect(audioCtx.destination);
-    
     const now = audioCtx.currentTime;
+
     if (type === "boom") {
-      osc.type = "sawtooth";
-      osc.frequency.setValueAtTime(120, now);
-      osc.frequency.exponentialRampToValueAtTime(10, now + 0.3);
-      gain.gain.setValueAtTime(0.3, now);
-      gain.gain.exponentialRampToValueAtTime(0.01, now + 0.3);
-      osc.start(now);
-      osc.stop(now + 0.3);
-    } else if (type === "powerup") {
-      osc.type = "sine";
-      osc.frequency.setValueAtTime(400, now);
-      osc.frequency.setValueAtTime(800, now + 0.1);
-      osc.frequency.setValueAtTime(1600, now + 0.2);
+      // 8-bit noise explosion (no bass rumble, no vibration)
+      const bufferSize = audioCtx.sampleRate * 0.25;
+      const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+      const data = buffer.getChannelData(0);
+      for (let i = 0; i < bufferSize; i++) {
+        data[i] = Math.random() * 2 - 1; // white noise
+      }
+      const noise = audioCtx.createBufferSource();
+      noise.buffer = buffer;
+      
+      const filter = audioCtx.createBiquadFilter();
+      filter.type = "lowpass";
+      filter.frequency.setValueAtTime(1200, now);
+      filter.frequency.exponentialRampToValueAtTime(300, now + 0.2);
+      
+      const gain = audioCtx.createGain();
       gain.gain.setValueAtTime(0.4, now);
-      gain.gain.linearRampToValueAtTime(0, now + 0.4);
-      osc.start(now);
-      osc.stop(now + 0.4);
-    } else if (type === "start") {
+      gain.gain.exponentialRampToValueAtTime(0.01, now + 0.25);
+      
+      noise.connect(filter);
+      filter.connect(gain);
+      gain.connect(audioCtx.destination);
+      noise.start(now);
+    } else if (type === "powerup") {
+      // Crystal clear major arpeggio
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
       osc.type = "square";
-      osc.frequency.setValueAtTime(220, now);
-      osc.frequency.setValueAtTime(440, now + 0.1);
-      gain.gain.setValueAtTime(0.2, now);
-      gain.gain.linearRampToValueAtTime(0, now + 0.2);
+      osc.frequency.setValueAtTime(523.25, now); // C5
+      osc.frequency.setValueAtTime(659.25, now + 0.08); // E5
+      osc.frequency.setValueAtTime(783.99, now + 0.16); // G5
+      osc.frequency.setValueAtTime(1046.50, now + 0.24); // C6
+      gain.gain.setValueAtTime(0.15, now);
+      gain.gain.setValueAtTime(0.15, now + 0.24);
+      gain.gain.linearRampToValueAtTime(0, now + 0.35);
       osc.start(now);
-      osc.stop(now + 0.2);
+      osc.stop(now + 0.35);
+    } else if (type === "start") {
+      // Crisp start chime
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+      osc.type = "square";
+      osc.frequency.setValueAtTime(440, now);
+      osc.frequency.exponentialRampToValueAtTime(880, now + 0.15);
+      gain.gain.setValueAtTime(0.15, now);
+      gain.gain.linearRampToValueAtTime(0, now + 0.25);
+      osc.start(now);
+      osc.stop(now + 0.25);
     }
   } catch (e) { /* silent fail */ }
 }
