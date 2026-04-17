@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "build:wasm": "wasm-pack build wasm-engine --target bundler --out-dir ../lib/wasm",
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
