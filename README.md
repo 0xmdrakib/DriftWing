@@ -1,4 +1,4 @@
-Just lunched: Drift Wing ✈️ 
+Just lunched : Drift Wing ✈️ 
 A tiny arcade shooter built as a https://x.com/base Mini App & web app.
 
 ✅ Drag left/right to move, Auto-fire, Survive.
