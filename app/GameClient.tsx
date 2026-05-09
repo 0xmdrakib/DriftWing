@@ -45,6 +45,8 @@ const DIFF: Record<Difficulty, { label: string }> = {
   hard:   { label: "Hard" },
 };
 
+const SHOW_LEADERBOARD = process.env.NEXT_PUBLIC_SHOW_LEADERBOARD === "true";
+
 // Simple audio synth for retro game feel (0 dependencies, works everywhere)
 let audioCtx: AudioContext | null = null;
 function playSound(type: "pop" | "powerup" | "start") {
@@ -989,11 +991,13 @@ ctx.save();
                 </button>
               </div>
 
-              <div className="dwRow">
-                <button className="dwBtn" onClick={() => setLbOpen(true)} type="button">
-                  Leaderboard
-                </button>
-              </div>
+              {SHOW_LEADERBOARD && (
+                <div className="dwRow">
+                  <button className="dwBtn" onClick={() => setLbOpen(true)} type="button">
+                    Leaderboard
+                  </button>
+                </div>
+              )}
 
 
               {phase === "over" && canChain && (
@@ -1026,7 +1030,7 @@ ctx.save();
           </div>
         )}
 
-{lbOpen && (
+{SHOW_LEADERBOARD && lbOpen && (
           <div className="dwOverlay dwOverlayTop" onClick={() => setLbOpen(false)}>
             <div className="dwModal" onClick={(e) => e.stopPropagation()}>
               <div className="dwModalTitle">Weekly Leaderboard</div>
