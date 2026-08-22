@@ -2,7 +2,7 @@
 
 Drift Wing is a tiny arcade shooter built for quick survival runs on Base and Farcaster mini app clients.
 
-**Live app:** https://driftwing.vercel.app
+**Live app:** https://driftwing.rakibhq.xyz
 
 ---
 
@@ -65,45 +65,9 @@ The app can optionally route score-save transactions through a server-side payma
 - Tailwind-style custom CSS
 - viem
 - Farcaster Mini App SDK
-- Vercel KV / Upstash Redis
 - Solidity
 
 ---
-
-## Getting started
-
-### 1. Install dependencies
-
-```bash
-npm install
-```
-
-### 2. Configure environment variables
-
-Create a `.env` file in the project root. Then copy the values from [.env.example](./.env.example) and fill them in.
-
-### 3. Build the WASM engine when needed
-
-The project includes a compiled WASM engine. If you change the Rust engine source, rebuild the WASM package:
-
-```bash
-npm run build:wasm
-```
-
-### 4. Run the development server
-
-```bash
-npm run dev
-```
-
-Open `http://localhost:3000` in your browser.
-
-### 5. Build for production
-
-```bash
-npm run build
-npm run start
-```
 
 ## License
 
