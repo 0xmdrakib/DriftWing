@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { encodeFunctionData, isAddress } from "viem";
 import { privateBaseRpcRequest } from "@/lib/server/baseRpc";
+import { checkRateLimit, type RateLimitDecision } from "@/lib/server/rateLimit";
 import { scoreboardAbi } from "@/lib/scoreboardAbi";
 
 export const runtime = "nodejs";
@@ -8,21 +9,6 @@ export const dynamic = "force-dynamic";
 
 const HASH_PATTERN = /^0x[0-9a-fA-F]{64}$/;
 const HEX_PATTERN = /^0x[0-9a-fA-F]+$/;
-const RATE_LIMIT_WINDOW_MS = 60_000;
-const RATE_LIMIT_MAX_REQUESTS = 180;
-
-type RateLimitBucket = { count: number; resetAt: number };
-
-declare global {
-  // Best-effort per-instance protection. Vercel Firewall should provide the
-  // distributed rate limit when stricter abuse protection is required.
-  // eslint-disable-next-line no-var
-  var __dwChainApiRateLimits: Map<string, RateLimitBucket> | undefined;
-}
-
-const rateLimits =
-  globalThis.__dwChainApiRateLimits ||
-  (globalThis.__dwChainApiRateLimits = new Map<string, RateLimitBucket>());
 
 const responseHeaders = {
   "cache-control": "private, no-store, max-age=0",
@@ -36,45 +22,12 @@ function json(body: unknown, status = 200, extraHeaders?: Record<string, string>
   });
 }
 
-function requestIp(req: NextRequest) {
-  return (
-    req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
-    req.headers.get("x-real-ip") ||
-    "unknown"
+function tooManyRequests(limit: RateLimitDecision) {
+  return json(
+    { error: "Too many requests. Please wait a moment and try again." },
+    429,
+    limit.headers,
   );
-}
-
-function applyRateLimit(req: NextRequest) {
-  const now = Date.now();
-  const key = requestIp(req);
-  let bucket = rateLimits.get(key);
-
-  if (!bucket || bucket.resetAt <= now) {
-    bucket = { count: 0, resetAt: now + RATE_LIMIT_WINDOW_MS };
-    rateLimits.set(key, bucket);
-  }
-
-  bucket.count += 1;
-
-  // Prevent unbounded memory growth on a long-lived server instance.
-  if (rateLimits.size > 5_000) {
-    for (const [bucketKey, value] of rateLimits) {
-      if (value.resetAt <= now) rateLimits.delete(bucketKey);
-    }
-  }
-
-  const remaining = Math.max(0, RATE_LIMIT_MAX_REQUESTS - bucket.count);
-  const headers = {
-    "ratelimit-limit": String(RATE_LIMIT_MAX_REQUESTS),
-    "ratelimit-remaining": String(remaining),
-    "ratelimit-reset": String(Math.ceil(bucket.resetAt / 1000)),
-  };
-
-  return {
-    allowed: bucket.count <= RATE_LIMIT_MAX_REQUESTS,
-    headers,
-    retryAfter: Math.max(1, Math.ceil((bucket.resetAt - now) / 1000)),
-  };
 }
 
 function isSameOriginRequest(req: NextRequest) {
@@ -92,31 +45,45 @@ function isSameOriginRequest(req: NextRequest) {
 }
 
 export async function GET(req: NextRequest) {
-  if (!isSameOriginRequest(req)) {
-    return json({ error: "Cross-origin requests are not allowed" }, 403);
-  }
+  const overallLimit = checkRateLimit(req, {
+    namespace: "chain:all",
+    capacity: 60,
+    refillPerSecond: 1.5,
+  });
+  if (!overallLimit.allowed) return tooManyRequests(overallLimit);
 
-  const rateLimit = applyRateLimit(req);
-  if (!rateLimit.allowed) {
+  if (!isSameOriginRequest(req)) {
     return json(
-      { error: "Too many requests" },
-      429,
-      { ...rateLimit.headers, "retry-after": String(rateLimit.retryAfter) }
+      { error: "Cross-origin requests are not allowed" },
+      403,
+      overallLimit.headers,
     );
   }
 
   const operation = req.nextUrl.searchParams.get("operation");
+  const operationLimit = checkRateLimit(req, {
+    namespace:
+      operation === "bestScore"
+        ? "chain:best-score"
+        : operation === "receipt"
+          ? "chain:receipt"
+          : "chain:invalid",
+    capacity: operation === "bestScore" ? 15 : operation === "receipt" ? 40 : 10,
+    refillPerSecond: operation === "bestScore" ? 0.25 : operation === "receipt" ? 1 : 0.1,
+  });
+  if (!operationLimit.allowed) return tooManyRequests(operationLimit);
+  const rateHeaders = operationLimit.headers;
 
   try {
     if (operation === "bestScore") {
       const player = req.nextUrl.searchParams.get("player") || "";
       if (!isAddress(player, { strict: true })) {
-        return json({ error: "Invalid player address" }, 400, rateLimit.headers);
+        return json({ error: "Invalid player address" }, 400, rateHeaders);
       }
 
       const scoreboardAddress = process.env.NEXT_PUBLIC_SCOREBOARD_ADDRESS;
       if (!scoreboardAddress || !isAddress(scoreboardAddress, { strict: true })) {
-        return json({ error: "Score saving is not configured" }, 503, rateLimit.headers);
+        return json({ error: "Score saving is not configured" }, 503, rateHeaders);
       }
 
       const data = encodeFunctionData({
@@ -133,13 +100,13 @@ export async function GET(req: NextRequest) {
       }
       const score = BigInt(encodedScore);
 
-      return json({ score: score.toString() }, 200, rateLimit.headers);
+      return json({ score: score.toString() }, 200, rateHeaders);
     }
 
     if (operation === "receipt") {
       const hash = req.nextUrl.searchParams.get("hash") || "";
       if (!HASH_PATTERN.test(hash)) {
-        return json({ error: "Invalid transaction hash" }, 400, rateLimit.headers);
+        return json({ error: "Invalid transaction hash" }, 400, rateHeaders);
       }
 
       const receipt = await privateBaseRpcRequest<{
@@ -148,7 +115,7 @@ export async function GET(req: NextRequest) {
       } | null>("eth_getTransactionReceipt", [hash]);
 
       if (!receipt) {
-        return json({ status: "pending" }, 202, rateLimit.headers);
+        return json({ status: "pending" }, 202, rateHeaders);
       }
 
       if (
@@ -166,11 +133,11 @@ export async function GET(req: NextRequest) {
           blockNumber: BigInt(receipt.blockNumber).toString(),
         },
         200,
-        rateLimit.headers
+        rateHeaders
       );
     }
 
-    return json({ error: "Unsupported operation" }, 400, rateLimit.headers);
+    return json({ error: "Unsupported operation" }, 400, rateHeaders);
   } catch (error) {
     // Do not return the upstream error message: provider errors can contain
     // the private RPC URL. Log only the error type for diagnostics.
@@ -178,6 +145,6 @@ export async function GET(req: NextRequest) {
       "[chain-api] Private RPC request failed:",
       error instanceof Error ? error.name : "UnknownError"
     );
-    return json({ error: "Blockchain service is temporarily unavailable" }, 502, rateLimit.headers);
+    return json({ error: "Blockchain service is temporarily unavailable" }, 502, rateHeaders);
   }
 }
