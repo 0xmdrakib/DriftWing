@@ -352,17 +352,6 @@ export default function GameClient() {
     }
   }
 
-  async function shareScore() {
-    try {
-      await sdk.actions.composeCast({
-        text: `I scored ${g.current.score} in DriftWing ✈️🔥`,
-        embeds: [window.location.href],
-      });
-    } catch {
-      // ignore
-    }
-  }
-
   function resetCore(targetPhase: Phase) {
     if (engineRef.current) {
       engineRef.current.reset(targetPhase, difficultyRef.current, performance.now());
@@ -1114,9 +1103,6 @@ ctx.save();
               <div className="dwRow">
                 <button className="dwBtn dwPrimary" onClick={start} type="button">
                   Play again
-                </button>
-                <button className="dwBtn" onClick={shareScore} type="button">
-                  Share
                 </button>
               </div>
 
