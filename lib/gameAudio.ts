@@ -36,7 +36,6 @@ let context: AudioContext | null = null;
 let compressor: DynamicsCompressorNode | null = null;
 let musicBus: GainNode | null = null;
 let sfxBus: GainNode | null = null;
-let noiseBuffer: AudioBuffer | null = null;
 
 let currentPhase: GameAudioPhase = "menu";
 let unlocked = false;
@@ -97,20 +96,6 @@ function trackSource(source: AudioScheduledSourceNode) {
   );
 }
 
-function createNoiseBuffer(ctx: AudioContext) {
-  const length = Math.floor(ctx.sampleRate * 0.24);
-  const buffer = ctx.createBuffer(1, length, ctx.sampleRate);
-  const data = buffer.getChannelData(0);
-  let seed = 0xd12f2026;
-
-  for (let i = 0; i < length; i += 1) {
-    seed = (1664525 * seed + 1013904223) >>> 0;
-    data[i] = (seed / 0xffffffff) * 2 - 1;
-  }
-
-  return buffer;
-}
-
 function ensureAudioGraph() {
   if (context && context.state !== "closed") return context;
   if (typeof window === "undefined") return null;
@@ -142,7 +127,6 @@ function ensureAudioGraph() {
   compressor = nextCompressor;
   musicBus = nextMusicBus;
   sfxBus = nextSfxBus;
-  noiseBuffer = createNoiseBuffer(ctx);
 
   visibilityHandler = () => {
     if (!context || !unlocked) return;
@@ -262,9 +246,10 @@ function scheduleKick(start: number, accent: boolean) {
   const osc = context.createOscillator();
   const gain = context.createGain();
   osc.type = "sine";
-  osc.frequency.setValueAtTime(accent ? 112 : 94, start);
-  osc.frequency.exponentialRampToValueAtTime(42, start + 0.12);
-  gain.gain.setValueAtTime(accent ? 0.07 : 0.05, start);
+  osc.frequency.setValueAtTime(accent ? 96 : 84, start);
+  osc.frequency.exponentialRampToValueAtTime(50, start + 0.12);
+  gain.gain.setValueAtTime(0.0001, start);
+  gain.gain.exponentialRampToValueAtTime(accent ? 0.052 : 0.038, start + 0.005);
   gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.14);
   osc.connect(gain);
   gain.connect(musicBus);
@@ -273,24 +258,20 @@ function scheduleKick(start: number, accent: boolean) {
   osc.stop(start + 0.15);
 }
 
-function scheduleNoiseHit(start: number, kind: "snare" | "hat") {
-  if (!context || !musicBus || !noiseBuffer) return;
-  const source = context.createBufferSource();
-  const filter = context.createBiquadFilter();
-  const gain = context.createGain();
-  const duration = kind === "snare" ? 0.13 : 0.045;
+function scheduleSoftPercussion(start: number, kind: "snare" | "hat") {
+  if (!musicBus) return;
 
-  source.buffer = noiseBuffer;
-  filter.type = "highpass";
-  filter.frequency.setValueAtTime(kind === "snare" ? 1450 : 6500, start);
-  gain.gain.setValueAtTime(kind === "snare" ? 0.026 : 0.009, start);
-  gain.gain.exponentialRampToValueAtTime(0.0001, start + duration);
-  source.connect(filter);
-  filter.connect(gain);
-  gain.connect(musicBus);
-  trackSource(source);
-  source.start(start);
-  source.stop(start + duration + 0.01);
+  if (kind === "hat") {
+    // Tonal, low-level shimmer instead of white noise. The smooth oscillator
+    // envelope avoids random sample edges that can crackle on phone speakers.
+    scheduleOscillator(3400, start, 0.052, 0.0034, "triangle", musicBus, 5200);
+    scheduleOscillator(5100, start + 0.003, 0.038, 0.0014, "sine", musicBus, 6200);
+    return;
+  }
+
+  // A soft electronic rim/tom keeps the backbeat without a noise burst.
+  scheduleOscillator(190, start, 0.13, 0.012, "triangle", musicBus, 1100);
+  scheduleOscillator(330, start + 0.004, 0.095, 0.005, "sine", musicBus, 1500);
 }
 
 function scheduleMusicStep(step: number, start: number) {
@@ -316,11 +297,11 @@ function scheduleMusicStep(step: number, start: number) {
 
     const arpIndex = (stepInBar / 2 + bar) % chord.length;
     scheduleBell(chord[arpIndex] + 24, start, stepInBar === 0 ? 0.017 : 0.012);
-    scheduleNoiseHit(start, "hat");
+    scheduleSoftPercussion(start, "hat");
   }
 
   if (stepInBar === 0 || stepInBar === 8) scheduleKick(start, stepInBar === 0);
-  if (stepInBar === 4 || stepInBar === 12) scheduleNoiseHit(start, "snare");
+  if (stepInBar === 4 || stepInBar === 12) scheduleSoftPercussion(start, "snare");
 }
 
 function schedulerTick() {
@@ -486,7 +467,6 @@ export function disposeGameAudio() {
   compressor = null;
   musicBus = null;
   sfxBus = null;
-  noiseBuffer = null;
   unlocked = false;
   nextStepTime = 0;
   sequenceStep = 0;
