@@ -570,6 +570,142 @@ export default function GameClient() {
       ctx.restore();
     };
 
+    const powerupBurstPath = (
+      ctx: CanvasRenderingContext2D,
+      outer: number,
+      inner: number
+    ) => {
+      ctx.beginPath();
+      for (let i = 0; i < 20; i += 1) {
+        const angle = -Math.PI / 2 + (i * Math.PI) / 10;
+        const radius = i % 2 === 0 ? outer : inner;
+        const x = Math.cos(angle) * radius;
+        const y = Math.sin(angle) * radius;
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+      ctx.closePath();
+    };
+
+    const drawPickupJet = (
+      ctx: CanvasRenderingContext2D,
+      x: number,
+      y: number,
+      scale: number
+    ) => {
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.scale(scale, scale);
+      ctx.fillStyle = "#000";
+      ctx.strokeStyle = "#000";
+      ctx.lineWidth = 1.5;
+      ctx.lineJoin = "round";
+      ctx.beginPath();
+      ctx.moveTo(0, -8);
+      ctx.lineTo(2.5, -3);
+      ctx.lineTo(7, 1);
+      ctx.lineTo(2.5, 2.5);
+      ctx.lineTo(2, 7);
+      ctx.lineTo(0, 5.5);
+      ctx.lineTo(-2, 7);
+      ctx.lineTo(-2.5, 2.5);
+      ctx.lineTo(-7, 1);
+      ctx.lineTo(-2.5, -3);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      ctx.restore();
+    };
+
+    const drawPowerup = (ctx: CanvasRenderingContext2D, p: any, time: number) => {
+      const isOverdrive = p.t === "Overdrive";
+      const dpr = gg.dpr;
+      const pulse = 1 + Math.sin(time * 0.009 + Number(p.id || 0)) * 0.07;
+      const outer = 21 * dpr;
+      const inner = 17 * dpr;
+      const color = isOverdrive ? "#3BEFFF" : "#9DFF3B";
+      const label = isOverdrive ? "2X FIRE" : "WINGMEN";
+
+      ctx.save();
+      ctx.translate(p.x, p.y);
+      ctx.rotate(Math.sin(time * 0.004 + Number(p.id || 0)) * 0.055);
+      ctx.scale(pulse, pulse);
+
+      // Animated dashed halo makes pickups read differently from enemies.
+      ctx.save();
+      ctx.globalAlpha = 0.34;
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 4 * dpr;
+      ctx.setLineDash([4 * dpr, 4 * dpr]);
+      ctx.lineDashOffset = -(time * 0.02) % (8 * dpr);
+      ctx.beginPath();
+      ctx.arc(0, 0, 27 * dpr, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+
+      // Doodle shadow + bright starburst badge.
+      ctx.save();
+      ctx.translate(3 * dpr, 3 * dpr);
+      ctx.fillStyle = "#000";
+      powerupBurstPath(ctx, outer, inner);
+      ctx.fill();
+      ctx.restore();
+
+      ctx.fillStyle = color;
+      ctx.strokeStyle = "#000";
+      ctx.lineWidth = 3 * dpr;
+      ctx.lineJoin = "round";
+      powerupBurstPath(ctx, outer, inner);
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.fillStyle = "#FFF";
+      if (isOverdrive) {
+        ctx.beginPath();
+        ctx.arc(0, 0, 13 * dpr, 0, Math.PI * 2);
+      } else {
+        roundRectPath(ctx, -17 * dpr, -11.5 * dpr, 34 * dpr, 23 * dpr, 9 * dpr);
+      }
+      ctx.fill();
+      ctx.stroke();
+
+      if (isOverdrive) {
+        ctx.fillStyle = "#000";
+        ctx.font = `900 ${12 * dpr}px sans-serif`;
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText("×2", 0, 0.5 * dpr);
+
+        // Twin upward streaks reinforce the double-fire meaning.
+        ctx.strokeStyle = "#000";
+        ctx.lineWidth = 2 * dpr;
+        ctx.lineCap = "round";
+        ctx.beginPath();
+        ctx.moveTo(-7 * dpr, -10 * dpr);
+        ctx.lineTo(-7 * dpr, -17 * dpr);
+        ctx.moveTo(7 * dpr, -10 * dpr);
+        ctx.lineTo(7 * dpr, -17 * dpr);
+        ctx.stroke();
+      } else {
+        drawPickupJet(ctx, 0, -1.5 * dpr, 0.86 * dpr);
+        drawPickupJet(ctx, -10.5 * dpr, 3 * dpr, 0.56 * dpr);
+        drawPickupJet(ctx, 10.5 * dpr, 3 * dpr, 0.56 * dpr);
+      }
+
+      const labelY = 25 * dpr;
+      ctx.font = `900 ${7 * dpr}px sans-serif`;
+      const labelWidth = ctx.measureText(label).width + 10 * dpr;
+      roundRectPath(ctx, -labelWidth / 2, labelY, labelWidth, 13 * dpr, 4 * dpr);
+      ctx.fillStyle = "#000";
+      ctx.fill();
+      ctx.fillStyle = "#FFF";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(label, 0, labelY + 6.5 * dpr);
+
+      ctx.restore();
+    };
+
     
     // UI throttle
     let lastUi = performance.now();
@@ -644,26 +780,8 @@ ctx.save();
       
       // Powerups
       if (state.powerups) {
-        ctx.lineWidth = 2.5;
-        ctx.strokeStyle = "#000";
         for (const p of state.powerups) {
-            ctx.save();
-            ctx.translate(p.x, p.y);
-            const sz = 14 * gg.dpr;
-            
-            ctx.fillStyle = p.t === "Overdrive" ? "#3BEFFF" : "#9DFF3B";
-            
-            ctx.beginPath();
-            ctx.rect(-sz/2, -sz/2, sz, sz);
-            ctx.fill();
-            ctx.stroke();
-            
-            ctx.fillStyle = "#000";
-            ctx.font = "900 " + (10 * gg.dpr) + "px sans-serif";
-            ctx.textAlign = "center";
-            ctx.textBaseline = "middle";
-            ctx.fillText(p.t === "Overdrive" ? "O" : "M", 0, 2 * gg.dpr);
-            ctx.restore();
+          drawPowerup(ctx, p, t);
         }
       }
 
