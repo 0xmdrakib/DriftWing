@@ -18,6 +18,15 @@ import {
   disconnectWalletConnect,
   isWalletConnectConfigured,
 } from "@/lib/walletConnect";
+import {
+  disposeGameAudio,
+  getAudioPreferences,
+  playGameSfx,
+  setAudioPhase,
+  setMusicEnabled as setGameMusicEnabled,
+  setSfxEnabled as setGameSfxEnabled,
+  unlockGameAudio,
+} from "@/lib/gameAudio";
 
 type Phase = "menu" | "play" | "over";
 type Difficulty = "easy" | "medium" | "hard";
@@ -51,59 +60,6 @@ const DIFF: Record<Difficulty, { label: string }> = {
   medium: { label: "Medium" },
   hard:   { label: "Hard" },
 };
-
-// Simple audio synth for retro game feel (0 dependencies, works everywhere)
-let audioCtx: AudioContext | null = null;
-function playSound(type: "pop" | "powerup" | "start") {
-  try {
-    if (!audioCtx) {
-      audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
-    }
-    if (audioCtx.state === "suspended") audioCtx.resume();
-    const now = audioCtx.currentTime;
-
-    if (type === "pop") {
-      // Soft retro "pop" or minor hit sound (no harsh static)
-      const osc = audioCtx.createOscillator();
-      const gain = audioCtx.createGain();
-      osc.connect(gain);
-      gain.connect(audioCtx.destination);
-      osc.type = "square";
-      osc.frequency.setValueAtTime(150, now);
-      osc.frequency.exponentialRampToValueAtTime(40, now + 0.1);
-      gain.gain.setValueAtTime(0.08, now); // low volume
-      gain.gain.exponentialRampToValueAtTime(0.01, now + 0.1);
-      osc.start(now);
-      osc.stop(now + 0.1);
-    } else if (type === "powerup") {
-      // Magical rising glissando (very smooth and unobtrusive)
-      const osc = audioCtx.createOscillator();
-      const gain = audioCtx.createGain();
-      osc.connect(gain);
-      gain.connect(audioCtx.destination);
-      osc.type = "sine";
-      osc.frequency.setValueAtTime(600, now);
-      osc.frequency.exponentialRampToValueAtTime(1200, now + 0.15);
-      gain.gain.setValueAtTime(0.15, now);
-      gain.gain.linearRampToValueAtTime(0, now + 0.15);
-      osc.start(now);
-      osc.stop(now + 0.15);
-    } else if (type === "start") {
-      // Crisp start chime (kept the same as user liked it)
-      const osc = audioCtx.createOscillator();
-      const gain = audioCtx.createGain();
-      osc.connect(gain);
-      gain.connect(audioCtx.destination);
-      osc.type = "square";
-      osc.frequency.setValueAtTime(440, now);
-      osc.frequency.exponentialRampToValueAtTime(880, now + 0.15);
-      gain.gain.setValueAtTime(0.15, now);
-      gain.gain.linearRampToValueAtTime(0, now + 0.25);
-      osc.start(now);
-      osc.stop(now + 0.25);
-    }
-  } catch (e) { /* silent fail */ }
-}
 
 export default function GameClient() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -146,6 +102,11 @@ export default function GameClient() {
   // Difficulty picker (single button + dropdown for a clean top bar).
   const [diffOpen, setDiffOpen] = useState(false);
   const diffWrapRef = useRef<HTMLDivElement | null>(null);
+  const [audioOpen, setAudioOpen] = useState(false);
+  const [musicEnabled, setMusicEnabled] = useState(true);
+  const [sfxEnabled, setSfxEnabled] = useState(true);
+  const audioWrapRef = useRef<HTMLDivElement | null>(null);
+
   useEffect(() => {
     const onPointerDown = (e: Event) => {
       const t = e.target as Node | null;
@@ -153,9 +114,36 @@ export default function GameClient() {
       if (diffWrapRef.current && !diffWrapRef.current.contains(t)) {
         setDiffOpen(false);
       }
+      if (audioWrapRef.current && !audioWrapRef.current.contains(t)) {
+        setAudioOpen(false);
+      }
     };
     window.addEventListener("pointerdown", onPointerDown);
     return () => window.removeEventListener("pointerdown", onPointerDown);
+  }, []);
+
+  useEffect(() => {
+    const saved = getAudioPreferences();
+    setMusicEnabled(saved.musicEnabled);
+    setSfxEnabled(saved.sfxEnabled);
+    setAudioPhase(phaseRef.current);
+
+    let didUnlock = false;
+    const unlock = () => {
+      if (didUnlock) return;
+      didUnlock = true;
+      window.removeEventListener("pointerdown", unlock, true);
+      window.removeEventListener("keydown", unlock, true);
+      void unlockGameAudio();
+    };
+
+    window.addEventListener("pointerdown", unlock, true);
+    window.addEventListener("keydown", unlock, true);
+    return () => {
+      window.removeEventListener("pointerdown", unlock, true);
+      window.removeEventListener("keydown", unlock, true);
+      disposeGameAudio();
+    };
   }, []);
 
   const engineRef = useRef<GameEngineInstance | null>(null);
@@ -172,6 +160,21 @@ export default function GameClient() {
   function setPhaseSafe(p: Phase) {
     phaseRef.current = p;
     setPhase(p);
+    setAudioPhase(p);
+  }
+
+  function toggleMusic() {
+    const next = !musicEnabled;
+    setMusicEnabled(next);
+    setGameMusicEnabled(next);
+    void unlockGameAudio();
+  }
+
+  function toggleSfx() {
+    const next = !sfxEnabled;
+    setSfxEnabled(next);
+    setGameSfxEnabled(next);
+    void unlockGameAudio();
   }
 
   async function doConnect(provider?: Eip1193Provider) {
@@ -374,13 +377,13 @@ export default function GameClient() {
   }
 
   function start() {
-    playSound("start");
+    playGameSfx("start");
     restart("play");
   }
 
   function endGame() {
     if (phaseRef.current !== "play") return;
-    playSound("pop");
+    playGameSfx("pop");
     setPhaseSafe("over");
 
     // Manual onchain save: user chooses when to save (avoids forced tx prompts).
@@ -599,12 +602,12 @@ export default function GameClient() {
       // detect events via score diff
       const scoreDiff = state.score - (gg.score || 0);
       if (scoreDiff >= 20 && scoreDiff < 500) {
-        playSound("pop");
+        playGameSfx("pop");
       } else if (scoreDiff >= 500) {
-        playSound("powerup"); // boss kill
-        setTimeout(() => playSound("pop"), 150);
+        playGameSfx("powerup"); // boss kill
+        setTimeout(() => playGameSfx("pop"), 150);
       } else if (scoreDiff === 50) {
-        playSound("powerup");
+        playGameSfx("powerup");
       }
       
       // sync internal score
@@ -821,7 +824,63 @@ ctx.save();
             <span>Score</span>
             <b>{scoreUi}</b>
           </div>
-          
+
+          <div
+            className="dwAudioMenu"
+            ref={audioWrapRef}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              className={
+                "dwAudioTrigger" + (!musicEnabled && !sfxEnabled ? " isMuted" : "")
+              }
+              type="button"
+              aria-label="Audio settings"
+              aria-haspopup="true"
+              aria-expanded={audioOpen}
+              title="Audio settings"
+              onClick={() => {
+                setDiffOpen(false);
+                setAudioOpen((open) => !open);
+              }}
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M4 10v4h4l5 4V6L8 10H4Z" />
+                {musicEnabled || sfxEnabled ? (
+                  <>
+                    <path className="dwAudioWave" d="M16 9c1.1 1.7 1.1 4.3 0 6" />
+                    <path className="dwAudioWave" d="M19 6.5c2.6 3 2.6 8 0 11" />
+                  </>
+                ) : (
+                  <path className="dwAudioWave" d="m16 9 5 6m0-6-5 6" />
+                )}
+              </svg>
+            </button>
+
+            {audioOpen && (
+              <div className="dwAudioPopover" role="group" aria-label="Audio settings">
+                <div className="dwAudioTitle">Sound</div>
+                <button
+                  className={"dwAudioToggle" + (musicEnabled ? " isOn" : "")}
+                  type="button"
+                  aria-pressed={musicEnabled}
+                  onClick={toggleMusic}
+                >
+                  <span>Music</span>
+                  <b>{musicEnabled ? "On" : "Off"}</b>
+                </button>
+                <button
+                  className={"dwAudioToggle" + (sfxEnabled ? " isOn" : "")}
+                  type="button"
+                  aria-pressed={sfxEnabled}
+                  onClick={toggleSfx}
+                >
+                  <span>SFX</span>
+                  <b>{sfxEnabled ? "On" : "Off"}</b>
+                </button>
+              </div>
+            )}
+          </div>
         </div>
         
         <div className="dwRight">
@@ -830,7 +889,11 @@ ctx.save();
             <button
               className="dwBtn dwDiffSelect"
               type="button"
-              onClick={(e) => { e.stopPropagation(); setDiffOpen((v) => !v); }}
+              onClick={(e) => {
+                e.stopPropagation();
+                setAudioOpen(false);
+                setDiffOpen((v) => !v);
+              }}
               aria-haspopup="menu"
               aria-expanded={diffOpen}
               aria-label="Select difficulty"
