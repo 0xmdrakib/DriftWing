@@ -254,6 +254,52 @@ html, body {
   transform: translate(4px, 4px) rotate(2deg);
 }
 
+.dwPlayAgainButton {
+  position: relative;
+  z-index: 1;
+  padding-block: 10px;
+  background: var(--pop-pink);
+  border-width: 4px;
+  font-size: 1rem;
+  letter-spacing: 0.5px;
+  transform: rotate(1.2deg);
+  animation: dwPlayAgainPulse 1.8s ease-in-out infinite;
+}
+
+.dwPlayAgainButton:active {
+  transform: translate(4px, 4px) rotate(1.2deg);
+  animation: none;
+}
+
+@keyframes dwPlayAgainPulse {
+  0%, 100% {
+    box-shadow: 6px 6px 0 #000, 0 0 0 0 rgba(255, 59, 124, 0);
+  }
+  50% {
+    box-shadow: 7px 7px 0 #000, 0 0 0 5px rgba(255, 59, 124, 0.24);
+  }
+}
+
+.dwSaveButton {
+  margin: 2px 3px 0;
+  padding-block: 9px;
+  background: var(--pop-cyan);
+  border-radius: 255px 14px 225px 12px / 14px 225px 12px 255px;
+  box-shadow: 5px 5px 0 #000;
+  transform: rotate(-1.8deg) skewX(-1.2deg);
+}
+
+.dwSaveButton:active {
+  transform: translate(4px, 4px) rotate(-1.8deg) skewX(-1.2deg);
+  box-shadow: 2px 2px 0 #000;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dwPlayAgainButton {
+    animation: none;
+  }
+}
+
 .dwDiffSelect {
   background: var(--pop-cyan);
   padding: 6px 10px;
@@ -548,11 +594,34 @@ html, body {
   padding: 6px 12px !important;
   transform: rotate(1deg);
   box-shadow: 4px 4px 0px #000;
-  cursor: pointer;
+  cursor: default;
   pointer-events: auto;
   font-family: inherit;
 }
-.dwAccountPill:active {
-  transform: translate(2px, 2px) rotate(1deg);
-  box-shadow: 2px 2px 0px #000;
+
+.dwDisconnectButton {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  margin: -3px -7px -3px 1px;
+  padding: 0 0 0 5px;
+  color: #000;
+  background: transparent;
+  border: 0;
+  border-left: 2px solid #000;
+  border-radius: 0 8px 8px 0;
+  cursor: pointer;
+}
+
+.dwDisconnectButton:hover,
+.dwDisconnectButton:focus-visible {
+  color: #fff;
+  background: var(--pop-pink);
+  outline: 2px solid #000;
+  outline-offset: 1px;
+}
+
+.dwDisconnectButton:active {
+  transform: translate(1px, 1px);
 }

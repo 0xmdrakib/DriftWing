@@ -1042,16 +1042,26 @@ ctx.save();
 
         <div className="dwRight">
 {account ? (
-            <button
+            <div
               className="dwAccountPill"
-              onClick={(e) => { e.stopPropagation(); disconnect(); }}
-              type="button"
-              title="Disconnect"
+              onClick={(e) => e.stopPropagation()}
+              title="Connected wallet"
             >
               <div style={{ width: 12, height: 12, borderRadius: "50%", background: "#4ade80", border: '2px solid #000' }} />
               <span style={{ fontSize: "1.1rem" }}>{account.slice(0, 6)}...{account.slice(-4)}</span>
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ marginLeft: 2 }}><path d="M18.36 6.64a9 9 0 1 1-12.73 0"></path><line x1="12" y1="2" x2="12" y2="12"></line></svg>
-            </button>
+              <button
+                className="dwDisconnectButton"
+                type="button"
+                title="Disconnect wallet"
+                aria-label="Disconnect wallet"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  disconnect();
+                }}
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"></path><line x1="12" y1="2" x2="12" y2="12"></line></svg>
+              </button>
+            </div>
           ) : (
             <button className="dwBtn dwPrimary" onClick={(e) => { e.stopPropagation(); connect(); }} type="button">
               Connect
@@ -1087,7 +1097,7 @@ ctx.save();
               </div>
 
               <div className="dwRow">
-                <button className="dwBtn dwPrimary" onClick={start} type="button">
+                <button className="dwBtn dwPlayAgainButton" onClick={start} type="button">
                   Play again
                 </button>
               </div>
@@ -1095,7 +1105,7 @@ ctx.save();
               {phase === "over" && canChain && (
                 <div className="dwRow">
                   <button
-                    className={"dwBtn " + (account ? "dwPrimary" : "")}
+                    className="dwBtn dwSaveButton"
                     onClick={saving ? () => {} : account ? () => saveScoreOnchain(scoreUi, false) : connect}
                     type="button"
                     disabled={saving}
