@@ -434,16 +434,19 @@ export function playGameSfx(type: GameSoundEffect) {
   if (type === "pop") {
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
-    osc.type = "square";
-    osc.frequency.setValueAtTime(150, now);
-    osc.frequency.exponentialRampToValueAtTime(42, now + 0.095);
-    gain.gain.setValueAtTime(0.065, now);
-    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.105);
+    // A rounded kill tick: no square-wave edge or sub-bass drop that can
+    // produce a sharp speaker pop on small mobile devices.
+    osc.type = "triangle";
+    osc.frequency.setValueAtTime(235, now);
+    osc.frequency.exponentialRampToValueAtTime(145, now + 0.075);
+    gain.gain.setValueAtTime(0.0001, now);
+    gain.gain.exponentialRampToValueAtTime(0.03, now + 0.006);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.09);
     osc.connect(gain);
     gain.connect(sfxBus);
     trackSource(osc);
     osc.start(now);
-    osc.stop(now + 0.11);
+    osc.stop(now + 0.095);
     return;
   }
 
