@@ -40,6 +40,7 @@ const MENU_MOTIF = [74, 77, 81, 76, 74, 72, 69, 72] as const;
 let context: AudioContext | null = null;
 let compressor: DynamicsCompressorNode | null = null;
 let musicBus: GainNode | null = null;
+let musicDuckBus: GainNode | null = null;
 let sfxBus: GainNode | null = null;
 
 let currentPhase: GameAudioPhase = "menu";
@@ -114,6 +115,7 @@ function ensureAudioGraph() {
   const ctx = new AudioContextConstructor();
   const nextCompressor = ctx.createDynamicsCompressor();
   const nextMusicBus = ctx.createGain();
+  const nextMusicDuckBus = ctx.createGain();
   const nextSfxBus = ctx.createGain();
 
   nextCompressor.threshold.value = -16;
@@ -123,14 +125,17 @@ function ensureAudioGraph() {
   nextCompressor.release.value = 0.22;
 
   nextMusicBus.gain.value = 0.0001;
-  nextSfxBus.gain.value = 0.9;
-  nextMusicBus.connect(nextCompressor);
+  nextMusicDuckBus.gain.value = 1;
+  nextSfxBus.gain.value = 1.05;
+  nextMusicBus.connect(nextMusicDuckBus);
+  nextMusicDuckBus.connect(nextCompressor);
   nextSfxBus.connect(nextCompressor);
   nextCompressor.connect(ctx.destination);
 
   context = ctx;
   compressor = nextCompressor;
   musicBus = nextMusicBus;
+  musicDuckBus = nextMusicDuckBus;
   sfxBus = nextSfxBus;
 
   visibilityHandler = () => {
@@ -152,7 +157,7 @@ function ensureAudioGraph() {
 
 function phaseGain() {
   if (!preferences.musicEnabled || currentPhase === "over") return 0.0001;
-  return currentPhase === "play" ? 0.82 : 0.48;
+  return currentPhase === "play" ? 0.96 : 0.58;
 }
 
 function rampGain(param: AudioParam, target: number, duration: number) {
@@ -166,6 +171,23 @@ function rampGain(param: AudioParam, target: number, duration: number) {
 function applyPhaseGain(duration: number) {
   if (!musicBus) return;
   rampGain(musicBus.gain, phaseGain(), duration);
+}
+
+function duckMusicForEffect(type: GameSoundEffect) {
+  if (!context || !musicDuckBus || !preferences.musicEnabled) return;
+  const now = context.currentTime;
+  const isHit = type === "hit";
+  const isDestroy = type === "destroy" || type === "gameover";
+  const duckTo = isHit ? 0.7 : isDestroy ? 0.42 : 0.55;
+  const recoverAt = isHit ? 0.12 : isDestroy ? 0.28 : 0.22;
+
+  musicDuckBus.gain.cancelScheduledValues(now);
+  musicDuckBus.gain.setValueAtTime(
+    Math.max(0.0001, musicDuckBus.gain.value),
+    now
+  );
+  musicDuckBus.gain.exponentialRampToValueAtTime(duckTo, now + 0.008);
+  musicDuckBus.gain.exponentialRampToValueAtTime(1, now + recoverAt);
 }
 
 function scheduleOscillator(
@@ -403,7 +425,7 @@ export function setSfxEnabled(enabled: boolean) {
   loadPreferences();
   preferences.sfxEnabled = enabled;
   persistPreference(SFX_STORAGE_KEY, enabled);
-  if (sfxBus) rampGain(sfxBus.gain, enabled ? 0.9 : 0.0001, 0.08);
+  if (sfxBus) rampGain(sfxBus.gain, enabled ? 1.05 : 0.0001, 0.08);
 }
 
 export function playGameSfx(type: GameSoundEffect) {
@@ -415,18 +437,19 @@ export function playGameSfx(type: GameSoundEffect) {
   unlocked = true;
   if (ctx.state === "suspended") void ctx.resume();
   startScheduler();
+  duckMusicForEffect(type);
 
   const now = ctx.currentTime + 0.008;
   if (type === "hit") {
-    scheduleOscillator(520, now, 0.058, 0.026, "sine", sfxBus, 1800);
-    scheduleOscillator(390, now + 0.008, 0.052, 0.012, "triangle", sfxBus, 1400);
+    scheduleOscillator(720, now, 0.072, 0.055, "sine", sfxBus, 2400);
+    scheduleOscillator(480, now + 0.008, 0.065, 0.028, "triangle", sfxBus, 1800);
     return;
   }
 
   if (type === "destroy") {
-    scheduleOscillator(270, now, 0.12, 0.052, "triangle", sfxBus, 1500);
-    scheduleOscillator(410, now + 0.018, 0.095, 0.026, "sine", sfxBus, 1900);
-    scheduleOscillator(620, now + 0.04, 0.075, 0.012, "sine", sfxBus, 2400);
+    scheduleOscillator(255, now, 0.17, 0.095, "triangle", sfxBus, 1500);
+    scheduleOscillator(410, now + 0.018, 0.14, 0.055, "sine", sfxBus, 2100);
+    scheduleOscillator(660, now + 0.045, 0.1, 0.025, "sine", sfxBus, 2700);
     return;
   }
 
@@ -438,9 +461,9 @@ export function playGameSfx(type: GameSoundEffect) {
   }
 
   if (type === "gameover") {
-    scheduleOscillator(330, now, 0.2, 0.052, "triangle", sfxBus, 1500);
-    scheduleOscillator(247, now + 0.09, 0.24, 0.047, "triangle", sfxBus, 1200);
-    scheduleOscillator(185, now + 0.2, 0.28, 0.036, "sine", sfxBus, 900);
+    scheduleOscillator(330, now, 0.2, 0.075, "triangle", sfxBus, 1500);
+    scheduleOscillator(247, now + 0.09, 0.24, 0.068, "triangle", sfxBus, 1200);
+    scheduleOscillator(185, now + 0.2, 0.28, 0.052, "sine", sfxBus, 900);
     return;
   }
 
@@ -472,6 +495,7 @@ export function disposeGameAudio() {
   context = null;
   compressor = null;
   musicBus = null;
+  musicDuckBus = null;
   sfxBus = null;
   unlocked = false;
   nextStepTime = 0;
