@@ -1,6 +1,5 @@
 declare global {
   interface Window {
-    ethereum?: any;
     miniKit?: any; // Farcaster/Base MiniKit
   }
 }
@@ -14,8 +13,14 @@ export async function getActiveAddress(): Promise<`0x${string}` | null> {
     }
 
     // 2) EIP-1193 (Base App / ব্রাউজার)
-    if (typeof window !== "undefined" && window.ethereum) {
-      const [addr] = await window.ethereum.request({ method: "eth_requestAccounts" });
+    const ethereum =
+      typeof window === "undefined"
+        ? undefined
+        : (window.ethereum as
+            | { request(args: { method: string }): Promise<string[]> }
+            | undefined);
+    if (ethereum) {
+      const [addr] = await ethereum.request({ method: "eth_requestAccounts" });
       if (addr) return addr as `0x${string}`;
     }
 

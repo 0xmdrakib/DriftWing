@@ -11,8 +11,8 @@
   },
   "dependencies": {
     "@farcaster/miniapp-sdk": "^0.2.1",
-    "@walletconnect/modal": "2.7.0",
-    "@walletconnect/universal-provider": "2.23.10",
+    "@reown/appkit": "1.8.23",
+    "@walletconnect/universal-provider": "2.23.7",
     "next": "14.2.35",
     "react": "18.3.1",
     "react-dom": "18.3.1",
