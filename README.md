@@ -1,6 +1,6 @@
 # Drift Wing
 
-Drift Wing is a tiny arcade shooter built for quick survival runs on Base and Farcaster mini app clients.
+Drift Wing is a tiny arcade shooter built for quick survival runs on Base.
 
 **Live app:** https://driftwing.rakibhq.xyz
 
@@ -10,7 +10,7 @@ Drift Wing is a tiny arcade shooter built for quick survival runs on Base and Fa
 
 Drift Wing is a one-touch shooter where players drag left and right, auto-fire at incoming enemies, collect powerups, and try to survive as long as possible.
 
-The game combines a canvas-based arcade UI with a Rust/WASM game engine. Players can connect a wallet, save their best score onchain through a Base scoreboard contract, and share their score through Farcaster.
+The game combines a canvas-based arcade UI with a Rust/WASM game engine. Players can connect a wallet and save their best score onchain through a Base scoreboard contract.
 
 ## Features
 
@@ -18,10 +18,10 @@ The game combines a canvas-based arcade UI with a Rust/WASM game engine. Players
 - Auto-fire gameplay with enemies, bullets, particles, bosses, and powerups
 - Difficulty selector with **Easy**, **Medium**, and **Hard** modes
 - Theme selector with multiple visual styles
-- Wallet connection for web and mini app environments
+- Wallet connection through injected wallets and WalletConnect
 - Onchain score saving on Base through a `Scoreboard` smart contract
 - Personal best score reading from the deployed contract
-- Farcaster mini app metadata, splash screen, and share flow
+- Base App ownership metadata and Base.dev registration support
 - Optional gasless score saving through a Base paymaster proxy
 - Base Builder Code attribution support for score-save transactions
 
@@ -56,7 +56,7 @@ The app can optionally route score-save transactions through a server-side payma
 - WebAssembly
 - Tailwind-style custom CSS
 - viem
-- Farcaster Mini App SDK
+- Reown AppKit and WalletConnect
 - Solidity
 
 ---

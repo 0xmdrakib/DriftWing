@@ -1,9 +1,8 @@
 // Minimal EIP-1193 provider resolver for DriftWing.
 //
 // Provider priority:
-//  1) Farcaster Mini App SDK wallet provider (only when actually running inside a Mini App)
-//  2) The web provider explicitly selected by the user (injected or WalletConnect)
-//  3) Web injected wallets (MetaMask/Rabby/Coinbase/etc.) with multi-provider support (EIP-6963)
+//  1) The web provider explicitly selected by the user (injected or WalletConnect)
+//  2) Web injected wallets (MetaMask/Rabby/Coinbase/etc.) with multi-provider support (EIP-6963)
 
 export type Eip1193Provider = {
   request: (args: { method: string; params?: unknown[] | Record<string, unknown> }) => Promise<unknown>;
@@ -133,22 +132,10 @@ export async function listInjectedWallets(): Promise<InjectedWallet[]> {
 export async function getEthereumProvider(): Promise<Eip1193Provider | null> {
   if (typeof window === "undefined") return null;
 
-  // 1) Farcaster Mini App provider (only when actually inside a Mini App context)
-  try {
-    const mod = await import("@farcaster/miniapp-sdk");
-    const inMiniApp = await mod.sdk.isInMiniApp();
-    if (inMiniApp) {
-      const p = await Promise.resolve(mod.sdk.wallet.getEthereumProvider());
-      if (p) return p as Eip1193Provider;
-    }
-  } catch {
-    // ignore (web can work without the SDK)
-  }
-
-  // 2) Provider explicitly selected during this browser session.
+  // 1) Provider explicitly selected during this browser session.
   if (activeWebProvider) return activeWebProvider;
 
-  // 3) Web injected providers
+  // 2) Web injected providers
   const wallets = await listInjectedWallets();
   if (!wallets.length) return null;
 

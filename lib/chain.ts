@@ -91,7 +91,6 @@ export async function submitScore(score: number) {
   if (!from) throw new Error("No account");
 
   // Prefer paymaster (gasless) only when the wallet advertises support.
-  // This avoids breaking Farcaster clients that don't support ERC-7677.
   const chainIdHex = (await eth.request({ method: "eth_chainId" })) as `0x${string}`;
   const paymasterUrl = getPaymasterProxyUrl();
 
@@ -113,7 +112,7 @@ export async function submitScore(score: number) {
     return { hash, account: from };
   }
 
-  // Fallback: normal writeContract (works in Farcaster, and in any wallet without paymaster).
+  // Fallback: normal writeContract for wallets without paymaster support.
   const wallet = await getWalletClient();
   if (!wallet) throw new Error("No wallet provider found");
   const hash = await wallet.sendTransaction({

@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { loadEngine, type GameEngineInstance } from "@/lib/wasmLoader";
-import { sdk } from "@farcaster/miniapp-sdk";
 import { hasScoreboard, readBestScore, submitScore, waitForReceipt } from "@/lib/chain";
 import {
   clearActiveEthereumProvider,
@@ -239,24 +238,11 @@ export default function GameClient() {
 
   async function connect() {
     try {
-      // If we're not in a Farcaster Mini App, prefer injected wallet UX on web.
-      let inMiniApp = false;
-      try {
-        inMiniApp = await sdk.isInMiniApp();
-      } catch {
-        inMiniApp = false;
-      }
-
-      if (!inMiniApp) {
-        // Always let the user choose. Never auto-request the previously used
-        // extension after a cancellation or app-level disconnect.
-        clearActiveEthereumProvider();
-        setPreferredInjectedWalletId(null);
-        await showWalletPicker();
-        return;
-      }
-
-      await doConnect();
+      // Always let the user choose. Never auto-request the previously used
+      // extension after a cancellation or app-level disconnect.
+      clearActiveEthereumProvider();
+      setPreferredInjectedWalletId(null);
+      await showWalletPicker();
     } catch (e: any) {
       setStatus(e?.message || "Wallet connect failed");
     }

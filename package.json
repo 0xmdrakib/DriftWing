@@ -10,7 +10,6 @@
     "lint": "next lint"
   },
   "dependencies": {
-    "@farcaster/miniapp-sdk": "^0.2.1",
     "@reown/appkit": "1.8.23",
     "@walletconnect/universal-provider": "2.23.7",
     "next": "14.2.35",

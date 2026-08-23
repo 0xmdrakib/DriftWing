@@ -19,38 +19,6 @@ export const metadata: Metadata = {
   other: {
     // ✅ Base App ownership verification tag (must be in <head>)
     "base:app_id": BASE_APP_ID,
-
-    // Mini App embed metadata (the launch button + preview).
-    // Base + Farcaster both support `fc:miniapp`. Keeping a `fc:frame` fallback
-    // helps older clients.
-    "fc:miniapp": JSON.stringify({
-      version: "1",
-      imageUrl: `${APP_URL}/hero.png?v=${ASSET_V}`,
-      button: {
-        title: "Play Drift Wing",
-        action: {
-          type: "launch_miniapp",
-          name: "Drift Wing",
-          url: APP_URL,
-          splashImageUrl: `${APP_URL}/splash.png?v=${ASSET_V}`,
-          splashBackgroundColor: "#070A12",
-        },
-      },
-    }),
-    "fc:frame": JSON.stringify({
-      version: "1",
-      imageUrl: `${APP_URL}/hero.png?v=${ASSET_V}`,
-      button: {
-        title: "Play Drift Wing",
-        action: {
-          type: "launch_frame",
-          name: "Drift Wing",
-          url: APP_URL,
-          splashImageUrl: `${APP_URL}/splash.png?v=${ASSET_V}`,
-          splashBackgroundColor: "#070A12",
-        },
-      },
-    }),
   },
   openGraph: {
     title: "DriftWing",
