@@ -5,12 +5,19 @@ import { loadEngine, type GameEngineInstance } from "@/lib/wasmLoader";
 import { sdk } from "@farcaster/miniapp-sdk";
 import { hasScoreboard, readBestScore, submitScore, waitForReceipt } from "@/lib/chain";
 import {
+  clearActiveEthereumProvider,
   getEthereumProvider,
-  getPreferredInjectedWalletId,
   listInjectedWallets,
+  setActiveEthereumProvider,
   setPreferredInjectedWalletId,
+  type Eip1193Provider,
   type InjectedWallet,
 } from "@/lib/ethProvider";
+import {
+  connectWalletConnect,
+  disconnectWalletConnect,
+  isWalletConnectConfigured,
+} from "@/lib/walletConnect";
 
 type Phase = "menu" | "play" | "over";
 type Difficulty = "easy" | "medium" | "hard";
@@ -128,6 +135,7 @@ export default function GameClient() {
   // show a picker so the user can choose which injected provider to use.
   const [walletPickerOpen, setWalletPickerOpen] = useState(false);
   const [injectedWalletOptions, setInjectedWalletOptions] = useState<InjectedWallet[]>([]);
+  const [connectingWalletId, setConnectingWalletId] = useState<string | null>(null);
   // Tracks whether the current run’s score has been saved at least once (UI only).
   const [savedThisRun, setSavedThisRun] = useState(false);
   const saveLockRef = useRef(false);
@@ -166,8 +174,8 @@ export default function GameClient() {
     setPhase(p);
   }
 
-  async function doConnect() {
-    const eth = await getEthereumProvider();
+  async function doConnect(provider?: Eip1193Provider) {
+    const eth = provider ?? (await getEthereumProvider());
     if (!eth) throw new Error("No wallet provider found");
     const accounts = (await eth.request({ method: "eth_requestAccounts" })) as string[];
     const a = accounts?.[0] as `0x${string}` | undefined;
@@ -176,15 +184,52 @@ export default function GameClient() {
     setStatus("Wallet connected");
 
     if (canChain) {
-      const b = await readBestScore(a);
-      if (typeof b === "number") setBestUi(b);
+      try {
+        const b = await readBestScore(a);
+        if (typeof b === "number") setBestUi(b);
+      } catch {
+        // A temporary score-read failure should not undo a wallet connection.
+        setStatus("Wallet connected • Best score unavailable");
+      }
     }
+
+    return { provider: eth, account: a };
   }
 
   function disconnect() {
     setAccount(null);
+    setBestUi(null);
     setStatus("");
-    try { setPreferredInjectedWalletId(null); } catch(e) {}
+    setWalletPickerOpen(false);
+    setInjectedWalletOptions([]);
+    setConnectingWalletId(null);
+    clearActiveEthereumProvider();
+    setPreferredInjectedWalletId(null);
+    void disconnectWalletConnect();
+  }
+
+  async function showWalletPicker(message?: string) {
+    const wallets = await listInjectedWallets();
+    setInjectedWalletOptions(wallets);
+    setWalletPickerOpen(true);
+    if (message) setStatus(message);
+  }
+
+  function connectionWasCancelled(error: any) {
+    const message = String(error?.message || "");
+    return error?.code === 4001 || /rejected|denied|cancelled|canceled|modal closed/i.test(message);
+  }
+
+  async function returnToWalletList(error: any) {
+    setAccount(null);
+    clearActiveEthereumProvider();
+    setPreferredInjectedWalletId(null);
+    setStatus(
+      connectionWasCancelled(error)
+        ? "Connection cancelled. Choose a wallet when you are ready."
+        : error?.message || "Wallet connect failed"
+    );
+    await showWalletPicker();
   }
 
   async function connect() {
@@ -198,13 +243,12 @@ export default function GameClient() {
       }
 
       if (!inMiniApp) {
-        const wallets = await listInjectedWallets();
-        const hasChoice = Boolean(getPreferredInjectedWalletId());
-        if (wallets.length > 0 && !hasChoice) {
-          setInjectedWalletOptions(wallets);
-          setWalletPickerOpen(true);
-          return;
-        }
+        // Always let the user choose. Never auto-request the previously used
+        // extension after a cancellation or app-level disconnect.
+        clearActiveEthereumProvider();
+        setPreferredInjectedWalletId(null);
+        await showWalletPicker();
+        return;
       }
 
       await doConnect();
@@ -214,19 +258,44 @@ export default function GameClient() {
   }
 
   async function chooseInjectedWallet(w: InjectedWallet) {
+    setConnectingWalletId(w.id);
+    setWalletPickerOpen(false);
     try {
+      const connected = await doConnect(w.provider);
+      setActiveEthereumProvider(connected.provider);
+      // Persist only after approval. A rejected request must never become the
+      // automatic provider for the next attempt.
       setPreferredInjectedWalletId(w.id);
-      setWalletPickerOpen(false);
       setInjectedWalletOptions([]);
-      await doConnect();
     } catch (e: any) {
-      setStatus(e?.message || "Wallet connect failed");
+      await returnToWalletList(e);
+    } finally {
+      setConnectingWalletId(null);
+    }
+  }
+
+  async function chooseWalletConnect() {
+    setConnectingWalletId("walletconnect");
+    setWalletPickerOpen(false);
+    setPreferredInjectedWalletId(null);
+    try {
+      const provider = await connectWalletConnect();
+      const connected = await doConnect(provider);
+      setActiveEthereumProvider(connected.provider);
+      setInjectedWalletOptions([]);
+    } catch (e: any) {
+      await returnToWalletList(e);
+    } finally {
+      setConnectingWalletId(null);
     }
   }
 
   function closeWalletPicker() {
     setWalletPickerOpen(false);
     setInjectedWalletOptions([]);
+    setConnectingWalletId(null);
+    clearActiveEthereumProvider();
+    setPreferredInjectedWalletId(null);
   }
 
   async function saveScoreOnchain(score: number, restartAfter: boolean) {
@@ -889,34 +958,48 @@ ctx.save();
 
         {walletPickerOpen && (
           <div className="dwOverlay dwOverlayTop" onClick={closeWalletPicker}>
-            <div className="dwModal" onClick={(e) => e.stopPropagation()}>
+            <div className="dwModal dwWalletModal" onClick={(e) => e.stopPropagation()}>
               <div className="dwModalTitle">Choose wallet</div>
               <div className="dwNote">
-                Multiple injected wallets were detected in your browser. Select the one you want to connect with.
+                Select an installed wallet, or use WalletConnect to connect from another device.
               </div>
 
-              <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 12 }}>
+              <div className="dwWalletList" aria-busy={Boolean(connectingWalletId)}>
                 {injectedWalletOptions.map((w) => (
                   <button
                     key={w.id}
-                    className="dwBtn"
+                    className="dwBtn dwWalletOption"
                     type="button"
                     onClick={() => chooseInjectedWallet(w)}
-                    style={{ display: "flex", alignItems: "center", gap: 10, justifyContent: "flex-start" }}
                   >
                     {w.icon ? (
                       // EIP-6963 icons are usually data URIs.
-                      <img src={w.icon} alt="" width={18} height={18} style={{ borderRadius: 4 }} />
+                      <img className="dwWalletIcon" src={w.icon} alt="" width={22} height={22} />
                     ) : (
-                      <span style={{ width: 18, display: "inline-block", opacity: 0.8 }}>◦</span>
+                      <span className="dwWalletFallbackIcon" aria-hidden="true">◦</span>
                     )}
                     <span>{w.name}</span>
                   </button>
                 ))}
+
+                {isWalletConnectConfigured() && (
+                  <button
+                    className="dwBtn dwWalletOption dwWalletConnectOption"
+                    type="button"
+                    onClick={chooseWalletConnect}
+                  >
+                    <span className="dwWalletConnectIcon" aria-hidden="true">
+                      <svg viewBox="0 0 24 24" role="presentation">
+                        <path d="M5.2 9.4a9.65 9.65 0 0 1 13.6 0l.45.45-1.7 1.7-.45-.45a7.24 7.24 0 0 0-10.2 0l-.45.45-1.7-1.7.45-.45Zm15.15 2.55 1.5 1.5-4.7 4.7a.8.8 0 0 1-1.15 0l-3.3-3.3a1 1 0 0 0-1.4 0L8 18.15a.8.8 0 0 1-1.15 0l-4.7-4.7 1.5-1.5 3.75 3.75 2.4-2.4a3.1 3.1 0 0 1 4.4 0l2.4 2.4 3.75-3.75Z" />
+                      </svg>
+                    </span>
+                    <span>WalletConnect</span>
+                  </button>
+                )}
               </div>
 
-              <div className="dwRow" style={{ justifyContent: "flex-end" }}>
-                <button className="dwBtn" type="button" onClick={closeWalletPicker}>
+              <div className="dwRow">
+                <button className="dwBtn dwWalletCancel" type="button" onClick={closeWalletPicker}>
                   Cancel
                 </button>
               </div>

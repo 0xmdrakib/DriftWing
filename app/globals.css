@@ -301,6 +301,90 @@ html, body {
   box-shadow: 3px 3px 0px #000;
 }
 
+/* Wallet picker */
+.dwWalletModal {
+  gap: 14px;
+  max-height: min(72vh, 560px);
+}
+
+.dwWalletList {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  overflow-y: auto;
+  padding: 3px 6px 7px 2px;
+}
+
+.dwWalletOption {
+  width: 100%;
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 11px;
+  padding: 9px 13px;
+  text-align: left;
+  box-shadow: 4px 4px 0 #000;
+}
+
+.dwWalletOption:nth-child(even) {
+  transform: rotate(0.35deg);
+}
+
+.dwWalletOption:nth-child(odd) {
+  transform: rotate(-0.35deg);
+}
+
+.dwWalletOption:active {
+  transform: translate(3px, 3px);
+}
+
+.dwWalletIcon,
+.dwWalletFallbackIcon,
+.dwWalletConnectIcon {
+  width: 24px;
+  height: 24px;
+  flex: 0 0 24px;
+  border-radius: 7px;
+}
+
+.dwWalletIcon {
+  object-fit: contain;
+}
+
+.dwWalletFallbackIcon {
+  display: grid;
+  place-items: center;
+  background: var(--pop-orange);
+  border: 2px solid #000;
+  font-size: 1.1rem;
+  line-height: 1;
+}
+
+.dwWalletConnectOption {
+  background: #eaf5ff;
+  margin-top: 3px;
+}
+
+.dwWalletConnectIcon {
+  display: grid;
+  place-items: center;
+  background: #3b99fc;
+  border: 2px solid #000;
+  overflow: hidden;
+}
+
+.dwWalletConnectIcon svg {
+  width: 19px;
+  height: 19px;
+  fill: #fff;
+}
+
+.dwWalletCancel {
+  width: 100%;
+  background: var(--pop-white);
+}
+
 /* Bottom Hint */
 .dwBottom {
   position: absolute;

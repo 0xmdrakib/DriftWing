@@ -2,7 +2,8 @@
 //
 // Provider priority:
 //  1) Farcaster Mini App SDK wallet provider (only when actually running inside a Mini App)
-//  2) Web injected wallets (MetaMask/Rabby/Coinbase/etc.) with multi-provider support (EIP-6963)
+//  2) The web provider explicitly selected by the user (injected or WalletConnect)
+//  3) Web injected wallets (MetaMask/Rabby/Coinbase/etc.) with multi-provider support (EIP-6963)
 
 export type Eip1193Provider = {
   request: (args: { method: string; params?: unknown[] | Record<string, unknown> }) => Promise<unknown>;
@@ -28,6 +29,15 @@ export type InjectedWallet = {
 };
 
 const PREF_KEY = "dw:preferredInjectedWallet";
+let activeWebProvider: Eip1193Provider | null = null;
+
+export function setActiveEthereumProvider(provider: Eip1193Provider | null) {
+  activeWebProvider = provider;
+}
+
+export function clearActiveEthereumProvider() {
+  activeWebProvider = null;
+}
 
 export function getPreferredInjectedWalletId(): string | null {
   if (typeof window === "undefined") return null;
@@ -135,7 +145,10 @@ export async function getEthereumProvider(): Promise<Eip1193Provider | null> {
     // ignore (web can work without the SDK)
   }
 
-  // 2) Web injected providers
+  // 2) Provider explicitly selected during this browser session.
+  if (activeWebProvider) return activeWebProvider;
+
+  // 3) Web injected providers
   const wallets = await listInjectedWallets();
   if (!wallets.length) return null;
 
