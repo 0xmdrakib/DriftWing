@@ -98,6 +98,8 @@ pub struct Bullet {
 pub struct GameState {
     pub phase: Phase,
     pub score: f64,
+    pub hit_events: u32,
+    pub destroy_events: u32,
     pub px: f64,
     pub py: f64,
     pub tx: f64,
@@ -194,6 +196,8 @@ pub struct GameEngine {
     last_shot_at: f64,
     
     score: f64,
+    hit_events: u32,
+    destroy_events: u32,
     overdrive_until: f64,
     drones_until: f64,
     next_id: u32,
@@ -228,6 +232,8 @@ impl GameEngine {
             last_shot_at: 0.0,
             
             score: 0.0,
+            hit_events: 0,
+            destroy_events: 0,
             overdrive_until: 0.0,
             drones_until: 0.0,
             next_id: 1,
@@ -266,6 +272,8 @@ impl GameEngine {
         self.bullets.clear();
         self.next_id = 1;
         self.score = 0.0;
+        self.hit_events = 0;
+        self.destroy_events = 0;
         self.overdrive_until = 0.0;
         
         let d = DiffConfig::get(self.diff);
@@ -343,6 +351,8 @@ impl GameEngine {
         let state = GameState {
             phase: self.phase,
             score: self.score,
+            hit_events: self.hit_events,
+            destroy_events: self.destroy_events,
             px: self.px,
             py: self.py,
             tx: self.tx,
@@ -571,11 +581,13 @@ impl GameEngine {
                 let rr = (if e.t == EnemyType::Boss { 0.85 } else { 0.92 }) * e.r + 6.0 * self.dpr;
                 if dist2(b.x, b.y, e.x, e.y) <= rr * rr {
                     hit = true;
+                    self.hit_events = self.hit_events.wrapping_add(1);
                     
                     let dmg = if e.t == EnemyType::Boss { d.boss_damage_mul } else { 1.0 };
                     e.hp -= dmg;
                     
                     if e.hp <= 0.0 {
+                        self.destroy_events = self.destroy_events.wrapping_add(1);
                         // Spawn particles
                         for _ in 0..10 {
                             self.particles.push(Particle {

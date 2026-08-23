@@ -1,7 +1,12 @@
 "use client";
 
 export type GameAudioPhase = "menu" | "play" | "over";
-export type GameSoundEffect = "pop" | "powerup" | "start";
+export type GameSoundEffect =
+  | "hit"
+  | "destroy"
+  | "gameover"
+  | "powerup"
+  | "start";
 
 export type GameAudioPreferences = {
   musicEnabled: boolean;
@@ -118,7 +123,7 @@ function ensureAudioGraph() {
   nextCompressor.release.value = 0.22;
 
   nextMusicBus.gain.value = 0.0001;
-  nextSfxBus.gain.value = 0.82;
+  nextSfxBus.gain.value = 0.9;
   nextMusicBus.connect(nextCompressor);
   nextSfxBus.connect(nextCompressor);
   nextCompressor.connect(ctx.destination);
@@ -147,7 +152,7 @@ function ensureAudioGraph() {
 
 function phaseGain() {
   if (!preferences.musicEnabled || currentPhase === "over") return 0.0001;
-  return currentPhase === "play" ? 0.66 : 0.38;
+  return currentPhase === "play" ? 0.82 : 0.48;
 }
 
 function rampGain(param: AudioParam, target: number, duration: number) {
@@ -398,7 +403,7 @@ export function setSfxEnabled(enabled: boolean) {
   loadPreferences();
   preferences.sfxEnabled = enabled;
   persistPreference(SFX_STORAGE_KEY, enabled);
-  if (sfxBus) rampGain(sfxBus.gain, enabled ? 0.82 : 0.0001, 0.08);
+  if (sfxBus) rampGain(sfxBus.gain, enabled ? 0.9 : 0.0001, 0.08);
 }
 
 export function playGameSfx(type: GameSoundEffect) {
@@ -412,22 +417,16 @@ export function playGameSfx(type: GameSoundEffect) {
   startScheduler();
 
   const now = ctx.currentTime + 0.008;
-  if (type === "pop") {
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    // A rounded kill tick: no square-wave edge or sub-bass drop that can
-    // produce a sharp speaker pop on small mobile devices.
-    osc.type = "triangle";
-    osc.frequency.setValueAtTime(235, now);
-    osc.frequency.exponentialRampToValueAtTime(145, now + 0.075);
-    gain.gain.setValueAtTime(0.0001, now);
-    gain.gain.exponentialRampToValueAtTime(0.03, now + 0.006);
-    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.09);
-    osc.connect(gain);
-    gain.connect(sfxBus);
-    trackSource(osc);
-    osc.start(now);
-    osc.stop(now + 0.095);
+  if (type === "hit") {
+    scheduleOscillator(520, now, 0.058, 0.026, "sine", sfxBus, 1800);
+    scheduleOscillator(390, now + 0.008, 0.052, 0.012, "triangle", sfxBus, 1400);
+    return;
+  }
+
+  if (type === "destroy") {
+    scheduleOscillator(270, now, 0.12, 0.052, "triangle", sfxBus, 1500);
+    scheduleOscillator(410, now + 0.018, 0.095, 0.026, "sine", sfxBus, 1900);
+    scheduleOscillator(620, now + 0.04, 0.075, 0.012, "sine", sfxBus, 2400);
     return;
   }
 
@@ -435,6 +434,13 @@ export function playGameSfx(type: GameSoundEffect) {
     scheduleOscillator(600, now, 0.18, 0.105, "sine", sfxBus, 3200);
     scheduleOscillator(900, now + 0.055, 0.2, 0.075, "sine", sfxBus, 3600);
     scheduleOscillator(1200, now + 0.11, 0.2, 0.055, "sine", sfxBus, 4200);
+    return;
+  }
+
+  if (type === "gameover") {
+    scheduleOscillator(330, now, 0.2, 0.052, "triangle", sfxBus, 1500);
+    scheduleOscillator(247, now + 0.09, 0.24, 0.047, "triangle", sfxBus, 1200);
+    scheduleOscillator(185, now + 0.2, 0.28, 0.036, "sine", sfxBus, 900);
     return;
   }
 

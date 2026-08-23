@@ -71,24 +71,6 @@ async function getWalletConnectProvider() {
       icons: [`${appUrl}/icon.png`],
     },
     themeMode: "dark",
-    themeVariables: {
-      "--w3m-z-index": 2000,
-      "--w3m-accent": "#3BEFFF",
-      "--w3m-color-mix": "#111111",
-      "--w3m-color-mix-strength": 12,
-      "--w3m-font-family": "inherit",
-      "--w3m-border-radius-master": "2px",
-      "--w3m-qr-color": "#FFFFFF",
-    },
-    features: {
-      analytics: false,
-      email: false,
-      socials: false,
-      swaps: false,
-      onramp: false,
-      history: false,
-      allWallets: true,
-    },
   });
 
   return providerInstance;
@@ -123,7 +105,8 @@ export async function connectWalletConnect(): Promise<Eip1193Provider> {
     }
   });
 
-  await modalInstance?.open({ view: "ConnectingWalletConnectBasic" });
+  // Use AppKit's official default connection/loading flow and styling.
+  await modalInstance?.open();
 
   const connection = provider.connect({
     namespaces: {

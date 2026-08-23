@@ -155,6 +155,8 @@ export default function GameClient() {
     tx: 0,
     dragging: false,
     score: 0,
+    hitEvents: 0,
+    destroyEvents: 0,
   });
 
   function setPhaseSafe(p: Phase) {
@@ -369,6 +371,9 @@ export default function GameClient() {
     setSavedThisRun(false);
     setStatus("");
     setScoreUi(0);
+    g.current.score = 0;
+    g.current.hitEvents = 0;
+    g.current.destroyEvents = 0;
   }
 
   function restart(into: Phase) {
@@ -383,7 +388,7 @@ export default function GameClient() {
 
   function endGame() {
     if (phaseRef.current !== "play") return;
-    playGameSfx("pop");
+    playGameSfx("gameover");
     setPhaseSafe("over");
 
     // Manual onchain save: user chooses when to save (avoids forced tx prompts).
@@ -599,19 +604,27 @@ export default function GameClient() {
         return;
       }
       
-      // detect events via score diff
+      // Rust exposes monotonic event counters so a hit and a destruction can
+      // have distinct feedback without guessing from the score value.
       const scoreDiff = state.score - (gg.score || 0);
-      if (scoreDiff >= 20 && scoreDiff < 500) {
-        playGameSfx("pop");
-      } else if (scoreDiff >= 500) {
-        playGameSfx("powerup"); // boss kill
-        setTimeout(() => playGameSfx("pop"), 150);
+      const hitEvents = Number(state.hit_events || 0);
+      const destroyEvents = Number(state.destroy_events || 0);
+      const didHit = hitEvents !== gg.hitEvents;
+      const didDestroy = destroyEvents !== gg.destroyEvents;
+
+      if (didDestroy) {
+        playGameSfx("destroy");
+        if (scoreDiff >= 500) setTimeout(() => playGameSfx("powerup"), 90);
+      } else if (didHit) {
+        playGameSfx("hit");
       } else if (scoreDiff === 50) {
         playGameSfx("powerup");
       }
       
       // sync internal score
       gg.score = state.score;
+      gg.hitEvents = hitEvents;
+      gg.destroyEvents = destroyEvents;
 
       // Rust serde serializes unit enum variants as plain strings
       if (state.phase === "Over" && phaseRef.current === "play") {
