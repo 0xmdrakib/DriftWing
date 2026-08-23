@@ -10,7 +10,7 @@ Drift Wing is a tiny arcade shooter built for quick survival runs on Base and Fa
 
 Drift Wing is a one-touch shooter where players drag left and right, auto-fire at incoming enemies, collect powerups, and try to survive as long as possible.
 
-The game combines a canvas-based arcade UI with a Rust/WASM game engine. Players can connect a wallet, save their best score onchain through a Base scoreboard contract, share their score through Farcaster, and compete on a weekly leaderboard.
+The game combines a canvas-based arcade UI with a Rust/WASM game engine. Players can connect a wallet, save their best score onchain through a Base scoreboard contract, and share their score through Farcaster.
 
 ## Features
 
@@ -21,8 +21,6 @@ The game combines a canvas-based arcade UI with a Rust/WASM game engine. Players
 - Wallet connection for web and mini app environments
 - Onchain score saving on Base through a `Scoreboard` smart contract
 - Personal best score reading from the deployed contract
-- Weekly Top 100 leaderboard with countdown and rank display
-- Leaderboard ingestion from submitted score transactions and recent contract events
 - Farcaster mini app metadata, splash screen, and share flow
 - Optional gasless score saving through a Base paymaster proxy
 - Base Builder Code attribution support for score-save transactions
@@ -43,13 +41,7 @@ The game engine supports multiple enemy types, boss waves, score progression, pa
 
 After a run ends, players can connect their wallet and save the final score onchain. The app writes to a `Scoreboard` contract on Base and stores each player’s personal best score.
 
-The contract emits a `ScoreSubmitted` event for every submitted score, allowing the app to verify saved scores and update the leaderboard.
-
-### Weekly leaderboard
-
-The weekly leaderboard tracks each player’s best score for the current week and shows the Top 100 players. The leaderboard can be updated from submitted transactions and synced from recent onchain `ScoreSubmitted` events.
-
-When persistent storage is configured, leaderboard data is stored with Vercel KV or Upstash Redis. Without persistent storage, the app can still run locally with in-memory leaderboard data.
+The contract emits a `ScoreSubmitted` event for every submitted score, keeping a verifiable score history onchain.
 
 ### Gasless flow
 

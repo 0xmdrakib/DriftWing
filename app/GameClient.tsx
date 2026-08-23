@@ -45,8 +45,6 @@ const DIFF: Record<Difficulty, { label: string }> = {
   hard:   { label: "Hard" },
 };
 
-const SHOW_LEADERBOARD = process.env.NEXT_PUBLIC_SHOW_LEADERBOARD === "true";
-
 // Simple audio synth for retro game feel (0 dependencies, works everywhere)
 let audioCtx: AudioContext | null = null;
 function playSound(type: "pop" | "powerup" | "start") {
@@ -130,114 +128,6 @@ export default function GameClient() {
   // show a picker so the user can choose which injected provider to use.
   const [walletPickerOpen, setWalletPickerOpen] = useState(false);
   const [injectedWalletOptions, setInjectedWalletOptions] = useState<InjectedWallet[]>([]);
-// Leaderboard UI (weekly top 100)
-  const [lbOpen, setLbOpen] = useState(false);
-  const [lbLoading, setLbLoading] = useState(false);
-  const [lbErr, setLbErr] = useState("");
-  const [lbTop, setLbTop] = useState<Array<{ address: `0x${string}`; score: number }>>([]);
-  const [lbWeekId, setLbWeekId] = useState<number | null>(null);
-  const [lbEndMs, setLbEndMs] = useState<number | null>(null);
-  const [lbNow, setLbNow] = useState<number>(Date.now());
-  const [lbMyRank, setLbMyRank] = useState<number | null>(null);
-  const [lbKvEnabled, setLbKvEnabled] = useState<boolean | null>(null);
-  const [lbUpdating, setLbUpdating] = useState(false);
-  const [lbCurrentWeekId, setLbCurrentWeekId] = useState<number | null>(null);
-  const lbRolloverForEndRef = useRef<number | null>(null);
-
-  // Avoid extra network refreshes caused by effect re-runs when lbEndMs changes.
-  // We keep the week end timestamp in a ref for the countdown/tick logic.
-  const lbEndMsRef = useRef<number | null>(null);
-  // Guard against spamming the API if the tick notices a week rollover.
-  const lbLoadingRef = useRef(false);
-
-  function fmtLeft(msLeft: number) {
-    const s = Math.max(0, Math.floor(msLeft / 1000));
-    const d = Math.floor(s / 86400);
-    const h = Math.floor((s % 86400) / 3600);
-    const m = Math.floor((s % 3600) / 60);
-    const ss = s % 60;
-    if (d > 0) return `${d}d ${h}h ${m}m ${ss}s`;
-    if (h > 0) return `${h}h ${m}m ${ss}s`;
-    return `${m}m ${ss}s`;
-  }
-
-  async function loadLeaderboard(weekOverride?: number) {
-    try {
-      setLbErr("");
-      const initial = lbTop.length === 0;
-      if (initial) setLbLoading(true);
-      else setLbUpdating(true);
-      lbLoadingRef.current = true;
-      const params = new URLSearchParams();
-      if (account) params.set("account", account);
-      if (typeof weekOverride === "number" && Number.isFinite(weekOverride)) params.set("week", String(weekOverride));
-      const qs = params.toString();
-      const res = await fetch(`/api/leaderboard${qs ? `?${qs}` : ""}`, { cache: "no-store" });
-      const raw = await res.text();
-      let data: any = null;
-      try {
-        data = raw ? JSON.parse(raw) : null;
-      } catch {
-        throw new Error(raw ? raw.slice(0, 200) : `Empty response (HTTP ${res.status})`);
-      }
-      if (!res.ok) {
-        throw new Error(data?.message || data?.error || `Failed to load leaderboard (HTTP ${res.status})`);
-      }
-      setLbWeekId(data.weekId);
-      setLbCurrentWeekId(typeof data.currentWeekId === "number" ? data.currentWeekId : data.weekId);
-      setLbEndMs(data.weekEndMs);
-      lbEndMsRef.current = typeof data.weekEndMs === "number" ? data.weekEndMs : null;
-      setLbTop(data.top || []);
-      setLbMyRank(typeof data.myRank === "number" ? data.myRank : null);
-      setLbKvEnabled(Boolean(data.kvEnabled));
-    } catch (e: any) {
-      setLbErr(e?.message || "Failed to load leaderboard");
-    } finally {
-      setLbLoading(false);
-      setLbUpdating(false);
-      lbLoadingRef.current = false;
-    }
-  }
-
-  useEffect(() => {
-    if (!lbOpen) return;
-
-    // Network refresh cadence: keep it gentle.
-    const LB_REFRESH_MS = 15_000;
-
-    // Always start by loading the current week.
-    loadLeaderboard();
-
-    const refresh = setInterval(() => {
-      // Only auto-refresh when viewing the current week.
-      const viewingCurrent = lbCurrentWeekId == null || lbWeekId == null || lbCurrentWeekId === lbWeekId;
-      if (viewingCurrent) loadLeaderboard();
-    }, LB_REFRESH_MS);
-
-    // UI-only ticker for the countdown clock (no network).
-    const tick = setInterval(() => {
-      setLbNow(Date.now());
-
-      const viewingCurrent = lbCurrentWeekId == null || lbWeekId == null || lbCurrentWeekId === lbWeekId;
-      if (!viewingCurrent) return;
-
-      // When the week rolls over, refresh exactly once.
-      const end = lbEndMsRef.current;
-      if (end && Date.now() >= end && !lbLoadingRef.current && lbRolloverForEndRef.current !== end) {
-        lbRolloverForEndRef.current = end;
-        loadLeaderboard();
-      }
-    }, 1_000);
-
-    return () => {
-      clearInterval(refresh);
-      clearInterval(tick);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lbOpen, account, lbWeekId, lbCurrentWeekId]);
-
-
-
   // Tracks whether the current run’s score has been saved at least once (UI only).
   const [savedThisRun, setSavedThisRun] = useState(false);
   const saveLockRef = useRef(false);
@@ -364,28 +254,6 @@ export default function GameClient() {
       const b = await readBestScore(account);
       if (typeof b === "number") setBestUi(b);
 
-      // Update weekly leaderboard (server verifies the tx event).
-      try {
-        const r = await fetch("/api/leaderboard", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ txHash: hash }),
-        });
-        const d = await r.json();
-        if (r.ok && d?.status === "ok") {
-          const rank = typeof d?.myRank === "number" ? d.myRank : null;
-          setStatus(
-            rank
-              ? `Score saved ✓ • Weekly rank #${rank}`
-              : "Score saved ✓ • Leaderboard updated"
-          );
-          // If the leaderboard is open, refresh it.
-          if (lbOpen) loadLeaderboard();
-        }
-      } catch {
-        // ignore leaderboard update errors (score is still onchain)
-      }
-
       if (restartAfter) {
         // auto restart after a short beat
         setTimeout(() => {
@@ -427,7 +295,6 @@ export default function GameClient() {
     }
     saveLockRef.current = false;
     setSavedThisRun(false);
-    setLbOpen(false);
     setStatus("");
     setScoreUi(0);
   }
@@ -438,7 +305,6 @@ export default function GameClient() {
   }
 
   function start() {
-    setLbOpen(false);
     playSound("start");
     restart("play");
   }
@@ -991,15 +857,6 @@ ctx.save();
                 </button>
               </div>
 
-              {SHOW_LEADERBOARD && (
-                <div className="dwRow">
-                  <button className="dwBtn" onClick={() => setLbOpen(true)} type="button">
-                    Leaderboard
-                  </button>
-                </div>
-              )}
-
-
               {phase === "over" && canChain && (
                 <div className="dwRow">
                   <button
@@ -1025,109 +882,6 @@ ctx.save();
                 ) : (
                   <>Onchain saving is disabled (set NEXT_PUBLIC_SCOREBOARD_ADDRESS).</>
                 )}
-              </div>
-            </div>
-          </div>
-        )}
-
-{SHOW_LEADERBOARD && lbOpen && (
-          <div className="dwOverlay dwOverlayTop" onClick={() => setLbOpen(false)}>
-            <div className="dwModal" onClick={(e) => e.stopPropagation()}>
-              <div className="dwModalTitle">Weekly Leaderboard</div>
-
-              <div className="dwLbMeta">
-                <div>
-                  <span>Week</span>
-                  <b>#{lbWeekId ?? "—"}</b>
-                  {lbCurrentWeekId != null && lbWeekId != null && lbWeekId !== lbCurrentWeekId && (
-                    <em className="dwLbTag">Snapshot</em>
-                  )}
-                </div>
-                <div style={{ textAlign: "right" }}>
-                  <span>
-                    {lbCurrentWeekId != null && lbWeekId != null && lbWeekId !== lbCurrentWeekId ? "Ended" : "Resets in"}
-                  </span>
-                  <b>
-                    {lbCurrentWeekId != null && lbWeekId != null && lbWeekId !== lbCurrentWeekId
-                      ? "—"
-                      : lbEndMs
-                        ? fmtLeft(lbEndMs - lbNow)
-                        : "…"}
-                  </b>
-                </div>
-              </div>
-
-              <div className="dwLbSwitch">
-                {lbCurrentWeekId != null && lbWeekId != null && lbWeekId !== lbCurrentWeekId && (
-                  <button className="dwBtn" onClick={() => loadLeaderboard()}>
-                    This week
-                  </button>
-                )}
-                {process.env.NODE_ENV !== "production" && (
-                  <button
-                    className="dwBtn"
-                    onClick={async () => {
-                      await fetch("/api/leaderboard/reset", { method: "POST" });
-                      loadLeaderboard();
-                    }}
-                    title="Development helper: clears the current week scores"
-                  >
-                    Reset (dev)
-                  </button>
-                )}
-                {lbUpdating && <div className="dwLbUpdating">Updating…</div>}
-              </div>
-
-              {typeof lbMyRank === "number" && (
-                <div className="dwHint">Your rank: #{lbMyRank}</div>
-              )}
-
-              {lbKvEnabled === false && (
-                <div className="dwHint">
-                  Leaderboard storage is running in local memory. Configure KV_REST_API_URL/KV_REST_API_TOKEN (Vercel KV) or UPSTASH_REDIS_REST_URL/UPSTASH_REDIS_REST_TOKEN (personal Upstash) to persist weekly rankings.
-                </div>
-              )}
-
-              <div className="dwLbCard">
-                <div className="dwLbHeadRow">
-                  <span>#</span>
-                  <span>Player</span>
-                  <span style={{ textAlign: "right" }}>Score</span>
-                </div>
-
-                <div className="dwLbList">
-                  {lbLoading ? (
-                    <div className="dwLbEmpty">Loading…</div>
-                  ) : lbErr ? (
-                    <div className="dwLbEmpty">{lbErr}</div>
-                  ) : lbTop.length === 0 ? (
-                    <div className="dwLbEmpty">No scores yet. Be the first.</div>
-                  ) : (
-                    lbTop.map((e, i) => (
-                      <div className="dwLbRow" key={e.address + i}>
-                        <span className="dwLbRank">{i + 1}</span>
-                        <span className="dwLbAddr">{e.address.slice(0, 6)}…{e.address.slice(-4)}</span>
-                        <span className="dwLbScore">{e.score}</span>
-                      </div>
-                    ))
-                  )}
-                </div>
-              </div>
-
-              <div className="dwRow">
-                <button className="dwBtn dwPrimary" onClick={() => setLbOpen(false)} type="button">
-                  Back
-                </button>
-                <button
-                  className="dwBtn"
-                  onClick={() => {
-                    const viewingPast = lbCurrentWeekId != null && lbWeekId != null && lbCurrentWeekId !== lbWeekId;
-                    loadLeaderboard(viewingPast ? lbWeekId! : undefined);
-                  }}
-                  type="button"
-                >
-                  Refresh
-                </button>
               </div>
             </div>
           </div>
