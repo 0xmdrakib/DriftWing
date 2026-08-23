@@ -1,9 +1,7 @@
 import {
-  createPublicClient,
   createWalletClient,
   custom,
   encodeFunctionData,
-  http,
 } from "viem";
 import { base } from "viem/chains";
 import { scoreboardAbi } from "./scoreboardAbi";
@@ -15,22 +13,37 @@ import {
 } from "./gasless";
 import { appendBuilderCodesSuffix } from "./builderCodes";
 
-const RPC_URL = process.env.NEXT_PUBLIC_BASE_RPC_URL || "https://mainnet.base.org";
 const SCOREBOARD_ADDRESS = process.env.NEXT_PUBLIC_SCOREBOARD_ADDRESS as `0x${string}` | undefined;
+const RECEIPT_POLL_INTERVAL_MS = 1_200;
+const RECEIPT_POLL_ATTEMPTS = 75;
 
 export function hasScoreboard() {
   return Boolean(SCOREBOARD_ADDRESS);
 }
 
-export function getPublicClient() {
-  return createPublicClient({ chain: base, transport: http(RPC_URL) });
-}
-
-
 export async function waitForReceipt(hash: `0x${string}`) {
-  const client = getPublicClient();
-  const receipt = await client.waitForTransactionReceipt({ hash });
-  return receipt;
+  for (let attempt = 0; attempt < RECEIPT_POLL_ATTEMPTS; attempt++) {
+    const response = await fetch(
+      `/api/chain?operation=receipt&hash=${encodeURIComponent(hash)}`,
+      { cache: "no-store", headers: { accept: "application/json" } }
+    );
+
+    if (response.status === 202) {
+      await new Promise((resolve) => setTimeout(resolve, RECEIPT_POLL_INTERVAL_MS));
+      continue;
+    }
+
+    const data = await response.json().catch(() => null);
+    if (!response.ok) {
+      throw new Error(data?.error || "Could not check transaction receipt");
+    }
+    if (data?.status !== "success") {
+      throw new Error("Transaction reverted");
+    }
+    return data;
+  }
+
+  throw new Error("Timed out waiting for transaction confirmation");
 }
 
 
@@ -50,14 +63,20 @@ export async function getWalletClient() {
 
 export async function readBestScore(player: `0x${string}`) {
   if (!SCOREBOARD_ADDRESS) return null;
-  const client = getPublicClient();
-  const best = await client.readContract({
-    address: SCOREBOARD_ADDRESS,
-    abi: scoreboardAbi,
-    functionName: "bestScore",
-    args: [player]
-  });
-  return Number(best);
+  const response = await fetch(
+    `/api/chain?operation=bestScore&player=${encodeURIComponent(player)}`,
+    { cache: "no-store", headers: { accept: "application/json" } }
+  );
+  const data = await response.json().catch(() => null);
+  if (!response.ok) {
+    throw new Error(data?.error || "Could not read best score");
+  }
+
+  const score = Number(data?.score);
+  if (!Number.isSafeInteger(score) || score < 0) {
+    throw new Error("Invalid best score returned by server");
+  }
+  return score;
 }
 
 export async function submitScore(score: number) {

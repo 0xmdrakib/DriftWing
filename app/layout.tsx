@@ -7,8 +7,7 @@ const APP_URL =
   (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "https://driftwing.vercel.app/");
 
 
-const BASE_APP_ID =
-  process.env.NEXT_PUBLIC_BASE_APP_ID || "695832f84d3a403912ed8a9c";
+const BASE_APP_ID = "695832f84d3a403912ed8a9c";
 
 const ASSET_V = process.env.NEXT_PUBLIC_ASSET_VERSION || "1";
 
