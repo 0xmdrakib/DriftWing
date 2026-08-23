@@ -21,6 +21,7 @@ export type GameEngineInstance = {
 };
 
 let cached: { GameEngine: GameEngineClass } | null = null;
+const WASM_ASSET_VERSION = "combat-audio-v1";
 
 export async function loadEngine(): Promise<{ GameEngine: GameEngineClass }> {
   if (cached) return cached;
@@ -29,10 +30,14 @@ export async function loadEngine(): Promise<{ GameEngine: GameEngineClass }> {
   // We use webpackIgnore + @ts-ignore so webpack and TypeScript both skip this —
   // the file only exists at runtime as a static asset served from /wasm/.
   // @ts-ignore — runtime-only dynamic import from public directory
-  const wasmModule = await import(/* webpackIgnore: true */ "/wasm/wasm_engine.js");
+  const wasmModule = await import(
+    /* webpackIgnore: true */ `/wasm/wasm_engine.js?v=${WASM_ASSET_VERSION}`
+  );
 
-  // init() fetches the .wasm binary from the same directory by default.
-  await wasmModule.default("/wasm/wasm_engine_bg.wasm");
+  // Version both static URLs so a deploy cannot reuse an older engine binary.
+  await wasmModule.default({
+    module_or_path: `/wasm/wasm_engine_bg.wasm?v=${WASM_ASSET_VERSION}`,
+  });
 
   cached = { GameEngine: wasmModule.GameEngine };
   return cached;
