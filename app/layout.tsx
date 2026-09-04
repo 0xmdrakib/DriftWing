@@ -9,7 +9,7 @@ const APP_URL =
 
 const BASE_APP_ID = "695832f84d3a403912ed8a9c";
 
-const ASSET_V = process.env.NEXT_PUBLIC_ASSET_VERSION || "1";
+const ASSET_V = process.env.NEXT_PUBLIC_ASSET_VERSION || "2";
 
 
 export const metadata: Metadata = {
@@ -29,7 +29,7 @@ export const metadata: Metadata = {
       {
         url: `/hero.png?v=${ASSET_V}`,
         width: 1200,
-        height: 800,
+        height: 630,
         alt: "Drift Wing",
       },
     ],
